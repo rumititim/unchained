@@ -180,20 +180,31 @@ export interface Token {
   balance?: string
   totalReceived?: string
   totalSent?: string
+  ids?: Array<string>
+  multiTokenValues?: Array<MultiTokenValue>
 }
 
 /**
- * Contains info about a token transfer done in a transaction
+ * Contains info about a multi token
+ */
+export interface MultiTokenValue {
+  id: string
+  value: string
+}
+
+/**
+ * Contains info about a token transfer in a transaction
  */
 export interface TokenTransfer {
   type: string
   from: string
   to: string
-  token: string
+  contract: string
   name: string
   symbol: string
   decimals: number
   value: string
+  multiTokenValues?: Array<MultiTokenValue>
 }
 
 /**

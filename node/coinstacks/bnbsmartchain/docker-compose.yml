@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    image: unchained-local-node
+    env_file: .env
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.bnbsmartchain-api.rule=Host(`api.bnbsmartchain.localhost`)'
+      - 'traefik.http.services.bnbsmartchain-api.loadbalancer.server.port=3000'
+    working_dir: /app/node/coinstacks/bnbsmartchain/api
+    command: yarn nodemon
+    volumes:
+      - ../../..:/app
+    networks:
+      - bnbsmartchain
+
+networks:
+  bnbsmartchain:
+    name: bnbsmartchain_default
+    external: true

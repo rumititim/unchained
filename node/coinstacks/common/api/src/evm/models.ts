@@ -1,12 +1,38 @@
 import { BaseAccount, BaseTx, BaseTxHistory } from '../models' // unable to import models from a module with tsoa
 
 /**
- * Contains info about current recommended fees to use in a transaction
+ * Contains info about estimated gas cost of a transaction
+ */
+export interface GasEstimate {
+  gasLimit: string
+}
+
+/**
+ * Contains info about legacy and/or EIP-1559 fees
+ */
+export interface Fees {
+  gasPrice: string
+  maxFeePerGas?: string
+  maxPriorityFeePerGas?: string
+}
+
+/**
+ * Contains info about current recommended fees to use in a transaction.
+ * Estimates for slow, average and fast confirmation speeds provided as well.
  */
 export interface GasFees {
+  // legacy gasPrice recommended by the node
   gasPrice: string
-  maxFeePerGas: string
-  maxPriorityFeePerGas: string
+  // baseFeePerGas for the pending block
+  baseFeePerGas?: string
+  // maxPriorityFeePerGas recommended by the node
+  maxPriorityFeePerGas?: string
+  // slow confirmation speed estimation
+  slow: Fees
+  // average confirmation speed estimation
+  average: Fees
+  // average confirmation speed estimation
+  fast: Fees
 }
 
 /**
@@ -18,6 +44,25 @@ export interface Token {
   name: string
   symbol: string
   type: string
+  /** nft or multi token id */
+  id?: string
+}
+
+/**
+ * Supported token types for token metadata
+ */
+export type TokenType = 'erc721' | 'erc1155'
+
+/**
+ * Contains info about token metadata (ERC-721/ERC-1155)
+ */
+export interface TokenMetadata {
+  name: string
+  description: string
+  media: {
+    url: string
+    type?: 'image' | 'video'
+  }
 }
 
 /**
@@ -34,6 +79,8 @@ export interface TokenTransfer extends Token {
   from: string
   to: string
   value: string
+  /** nft or multi token id */
+  id?: string
 }
 
 /**
@@ -98,10 +145,10 @@ export interface API {
    * @param {string} to to address
    * @param {string} value transaction value in wei
    *
-   * @returns {Promise<string>} estimated gas cost
+   * @returns {Promise<GasEstimate>} estimated gas cost
    */
   //@Get('/gas/estimate')
-  estimateGas(data: string, from: string, to: string, value: string): Promise<string>
+  estimateGas(data: string, from: string, to: string, value: string): Promise<GasEstimate>
 
   /**
    * Get the current recommended gas fees to use in a transaction
@@ -113,4 +160,16 @@ export interface API {
    */
   // @Get('/gas/fees')
   getGasFees(): Promise<GasFees>
+
+  /**
+   * Get token metadata
+   *
+   * @param {string} contract contract address
+   * @param {string} id token identifier
+   * @param {TokenType} type token type (erc721 or erc1155)
+   *
+   * @returns {Promise<TokenMetadata>} token metadata
+   */
+  // @Get('/metadata/token')
+  getTokenMetadata(contract: string, id: string, type: string): Promise<TokenMetadata>
 }

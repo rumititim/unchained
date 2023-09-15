@@ -1,14 +1,21 @@
-version: '3.6'
+version: '3.8'
 
 services:
   api:
+    image: unchained-local-node
+    env_file: .env
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.bitcoincash-api.rule=Host(`api.bitcoincash.localhost`)'
       - 'traefik.http.services.bitcoincash-api.loadbalancer.server.port=3000'
-    image: unchained-local
-    env_file: .env
-    working_dir: /app/coinstacks/bitcoincash/api
+    working_dir: /app/node/coinstacks/bitcoincash/api
     command: yarn nodemon
     volumes:
-      - ../..:/app
+      - ../../..:/app
+    networks:
+      - bitcoincash
+
+networks:
+  bitcoincash:
+    name: bitcoincash_default
+    external: true

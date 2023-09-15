@@ -3,6 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,24 +43,27 @@ type MessageResponse struct {
 
 // Connection represents a single websocket connection on the unchained api server
 type Connection struct {
-	clientID string
-	conn     *websocket.Conn
-	doneChan chan interface{}
-	handler  Registrar
-	manager  *Manager
-	msgChan  chan []byte
-	ticker   *time.Ticker
+	clientID        string
+	conn            *websocket.Conn
+	doneChan        chan interface{}
+	handler         Registrar
+	manager         *Manager
+	msgChan         chan []byte
+	subscriptionIDs map[string]struct{}
+	ticker          *time.Ticker
+	m               sync.Mutex
 }
 
 // NewConnection defines the connection and registers it with the manager
 func NewConnection(conn *websocket.Conn, handler Registrar, manager *Manager) *Connection {
 	c := &Connection{
-		clientID: uuid.NewString(),
-		conn:     conn,
-		doneChan: make(chan interface{}),
-		handler:  handler,
-		manager:  manager,
-		msgChan:  make(chan []byte),
+		clientID:        uuid.NewString(),
+		conn:            conn,
+		doneChan:        make(chan interface{}),
+		handler:         handler,
+		manager:         manager,
+		msgChan:         make(chan []byte),
+		subscriptionIDs: make(map[string]struct{}),
 	}
 
 	c.manager.register <- c
@@ -83,7 +87,7 @@ func (c *Connection) Start() {
 		if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 			return err
 		}
-		if err := c.conn.WriteMessage(websocket.PongMessage, nil); err != nil {
+		if err := c.send(websocket.PongMessage, nil); err != nil {
 			return err
 		}
 		return nil
@@ -101,12 +105,17 @@ func (c *Connection) Start() {
 	// send ping message to verify health of client.
 	// if there is an error responding to client, connection will be closed.
 	go func() {
-		for range c.ticker.C {
-			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				logger.Errorf("failed to set write deadline: %+v", err)
-			}
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				logger.Errorf("failed to write ping message packet: %+v", err)
+		for {
+			select {
+			case <-c.ticker.C:
+				if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+					logger.Errorf("failed to set write deadline: %+v", err)
+				}
+				if err := c.send(websocket.PingMessage, nil); err != nil {
+					logger.Errorf("failed to write ping message packet: %+v", err)
+				}
+			case <-c.doneChan:
+				return
 			}
 		}
 	}()
@@ -116,9 +125,11 @@ func (c *Connection) Start() {
 	go c.cleanup()
 }
 
-// Stop the websocket connection by unregistering with the manager and unsubscribing the client.
+// Stop the websocket connection by unsubscribing all client subscriptions and unregistering the client from the manager.
 func (c *Connection) Stop() {
-	c.handler.Unsubscribe(c.clientID, nil, c.msgChan)
+	for subscriptionID := range c.subscriptionIDs {
+		c.handler.Unsubscribe(c.clientID, subscriptionID, nil, c.msgChan)
+	}
 
 	// ensure connection has not already been unregistered before unregistering.
 	if _, ok := c.manager.connections[c]; ok {
@@ -129,11 +140,15 @@ func (c *Connection) Stop() {
 func (c *Connection) cleanup() {
 	<-c.doneChan
 	c.ticker.Stop()
-	if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
-		logger.Errorf("failed to write close message: %+v", err)
-	}
+	_ = c.send(websocket.CloseMessage, []byte{})
 	c.conn.Close()
 	close(c.msgChan)
+}
+
+func (c *Connection) send(messageType int, data []byte) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.conn.WriteMessage(messageType, data)
 }
 
 func (c *Connection) read() {
@@ -154,13 +169,15 @@ func (c *Connection) read() {
 		switch r.Method {
 		case "ping":
 			// browsers side pong message
-			if err := c.conn.WriteMessage(websocket.TextMessage, []byte("pong")); err != nil {
+			if err := c.send(websocket.TextMessage, []byte("pong")); err != nil {
 				logger.Errorf("failed to write pong message: %+v", err)
 			}
 		case "subscribe":
-			c.handler.Subscribe(c.clientID, r.Data.Addresses, c.msgChan)
+			c.subscriptionIDs[r.SubscriptionID] = struct{}{}
+			c.handler.Subscribe(c.clientID, r.SubscriptionID, r.Data.Addresses, c.msgChan)
 		case "unsubscribe":
-			c.handler.Unsubscribe(c.clientID, r.Data.Addresses, c.msgChan)
+			delete(c.subscriptionIDs, r.SubscriptionID)
+			c.handler.Unsubscribe(c.clientID, r.SubscriptionID, r.Data.Addresses, c.msgChan)
 		default:
 			c.writeError(fmt.Sprintf("%s method not implemented", r.Method), r.SubscriptionID)
 		}
@@ -172,7 +189,7 @@ func (c *Connection) write() {
 		if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 			logger.Errorf("failed to set write deadline: %+v", err)
 		}
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+		if err := c.send(websocket.TextMessage, msg); err != nil {
 			logger.Errorf("failed to write message: %+v", err)
 		}
 	}
@@ -194,7 +211,7 @@ func (c *Connection) writeError(message string, subscriptionID string) {
 	if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 		logger.Errorf("failed to set write deadline: %+v", err)
 	}
-	if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+	if err := c.send(websocket.TextMessage, msg); err != nil {
 		logger.Errorf("failed to write message: %+v", err)
 	}
 }

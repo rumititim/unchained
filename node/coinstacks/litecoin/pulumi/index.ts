@@ -1,58 +1,43 @@
-import { config as getEnv, parse } from 'dotenv'
-import { existsSync, readFileSync } from 'fs'
-import { join } from 'path'
-import * as k8s from '@pulumi/kubernetes'
-import { deployApi } from '@shapeshiftoss/common-pulumi'
-import { deployIndexer } from '@shapeshiftoss/blockbook-pulumi'
-import { getConfig } from './config'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Outputs = Record<string, any>
+import { readFileSync } from 'fs'
+import { deployCoinstack } from '../../../../pulumi/src/coinstack'
+import { Outputs, CoinServiceArgs, getConfig } from '../../../../pulumi/src'
+import { defaultBlockbookServiceArgs } from '../../../packages/blockbook/src/constants'
 
 //https://www.pulumi.com/docs/intro/languages/javascript/#entrypoint
 export = async (): Promise<Outputs> => {
+  const appName = 'unchained'
+  const coinstack = 'litecoin'
+  const sampleEnv = readFileSync('../sample.env')
   const { kubeconfig, config, namespace } = await getConfig()
-  const { cluster } = config
 
-  const name = 'unchained'
-  const asset = config.network !== 'mainnet' ? `litecoin-${config.network}` : 'litecoin'
-  const outputs: Outputs = {}
-
-  let provider: k8s.Provider
-  if (config.isLocal) {
-    provider = new k8s.Provider('kube-provider', { cluster, context: cluster })
-  } else {
-    provider = new k8s.Provider('kube-provider', { kubeconfig })
-  }
-
-  if (existsSync('../.env')) {
-    getEnv({ path: join(__dirname, '../.env') })
-  } else if (config.isLocal) {
-    throw new Error(
-      'you must run `cp sample.env .env` from the litecoin coinstack directory and fill out any empty values.'
-    )
-  }
-
-  const missingKeys: Array<string> = []
-  const stringData = Object.keys(parse(readFileSync('../sample.env'))).reduce((prev, key) => {
-    const value = process.env[key]
-
-    if (!value) {
-      missingKeys.push(key)
-      return prev
+  const coinServiceArgs = config.statefulService?.services?.map((service): CoinServiceArgs => {
+    switch (service.name) {
+      case 'daemon':
+        return {
+          ...service,
+          ports: { 'daemon-rpc': { port: 8332 } },
+          readinessProbe: { periodSeconds: 30, failureThreshold: 10 },
+        }
+      case 'indexer':
+        return {
+          ...service,
+          ...defaultBlockbookServiceArgs,
+          command: [...defaultBlockbookServiceArgs.command, '-workers=1'],
+          configMapData: { 'indexer-config.json': readFileSync('../indexer/config.json').toString() },
+        }
+      default:
+        throw new Error(`no support for coin service: ${service.name}`)
     }
+  })
 
-    return { ...prev, [key]: value }
-  }, {})
-
-  if (missingKeys.length) {
-    throw new Error(`Missing the following required environment variables: ${missingKeys.join(', ')}`)
-  }
-
-  new k8s.core.v1.Secret(asset, { metadata: { name: asset, namespace }, stringData }, { provider })
-
-  await deployIndexer(name, asset, provider, namespace, config)
-  await deployApi(name, asset, provider, namespace, config)
-
-  return outputs
+  return deployCoinstack({
+    appName,
+    coinServiceArgs,
+    coinstack,
+    coinstackType: 'node',
+    config,
+    kubeconfig,
+    namespace,
+    sampleEnv,
+  })
 }

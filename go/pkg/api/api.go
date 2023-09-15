@@ -104,19 +104,19 @@ type BaseTx struct {
 	Timestamp int `json:"timestamp"`
 }
 
-func (b BaseTx) txid() string {
+func (b *BaseTx) txid() string {
 	return b.TxID
 }
 
-func (b BaseTx) blockHash() *string {
+func (b *BaseTx) blockHash() *string {
 	return b.BlockHash
 }
 
-func (b BaseTx) blockHeight() int {
+func (b *BaseTx) blockHeight() int {
 	return b.BlockHeight
 }
 
-func (b BaseTx) timestamp() int {
+func (b *BaseTx) timestamp() int {
 	return b.Timestamp
 }
 
@@ -158,15 +158,20 @@ type PubkeyParam struct {
 	Pubkey string `json:"pubkey"`
 }
 
-// swagger:parameters GetTxHistory
-type PaginatedPubkeyParam struct {
-	PubkeyParam
+// swagger:parameters GetValidators
+type PaginationParam struct {
 	// Pagination cursor from previous response or empty string for first page fetch
 	// in: query
 	Cursor string `json:"cursor"`
-	// Page size (default 10)
+	// Page size
 	// in: query
 	PageSize int `json:"pageSize"`
+}
+
+// swagger:parameters GetTxHistory ValidatorTxHistory
+type PaginatedPubkeyParam struct {
+	PubkeyParam
+	PaginationParam
 }
 
 // swagger:parameters SendTx EstimateGas

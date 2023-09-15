@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	GRACEFUL_SHUTDOWN        = 15 * time.Second
-	MAX_PAGE_SIZE_TX_HISTORY = 100
+	GRACEFUL_SHUTDOWN            = 15 * time.Second
+	DEFAULT_PAGE_SIZE_VALIDATORS = 100
+	DEFAULT_PAGE_SIZE_TX_HISTORY = 10
+	MAX_PAGE_SIZE_TX_HISTORY     = 100
 )
 
 var (
@@ -72,12 +74,41 @@ func (a *API) Shutdown() {
 }
 
 func (a *API) Root(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Scheme == "ws" || r.URL.Scheme == "wss" {
+	if r.Header.Get("Upgrade") == "websocket" {
 		a.Websocket(w, r)
 		return
 	}
 
 	api.DocsRedirect(w, r)
+}
+
+func (a *API) ValidatePagingParams(w http.ResponseWriter, r *http.Request, defaultPageSize int, maxPageSize *int) (string, int, error) {
+	cursor := r.URL.Query().Get("cursor")
+
+	pageSizeQ := r.URL.Query().Get("pageSize")
+	if pageSizeQ == "" {
+		pageSizeQ = strconv.Itoa(defaultPageSize)
+	}
+
+	pageSize, err := strconv.Atoi(pageSizeQ)
+	if err != nil {
+		api.HandleError(w, http.StatusBadRequest, err.Error())
+		return cursor, 0, fmt.Errorf("error parsing page size: %w", err)
+	}
+
+	if maxPageSize != nil {
+		if pageSize > MAX_PAGE_SIZE_TX_HISTORY {
+			api.HandleError(w, http.StatusBadRequest, fmt.Sprintf("max page size is %d", MAX_PAGE_SIZE_TX_HISTORY))
+			return cursor, 0, fmt.Errorf("page size max is %d", MAX_PAGE_SIZE_TX_HISTORY)
+		}
+	}
+
+	if pageSize == 0 {
+		api.HandleError(w, http.StatusBadRequest, "page size cannot be 0")
+		return cursor, 0, fmt.Errorf("page size cannot be 0")
+	}
+
+	return cursor, pageSize, nil
 }
 
 // swagger:route GET / Websocket Websocket
@@ -149,26 +180,9 @@ func (a *API) TxHistory(w http.ResponseWriter, r *http.Request) {
 	// pubkey validated by ValidatePubkey middleware
 	pubkey := mux.Vars(r)["pubkey"]
 
-	cursor := r.URL.Query().Get("cursor")
-
-	pageSizeQ := r.URL.Query().Get("pageSize")
-	if pageSizeQ == "" {
-		pageSizeQ = "10"
-	}
-
-	pageSize, err := strconv.Atoi(pageSizeQ)
+	maxPageSize := MAX_PAGE_SIZE_TX_HISTORY
+	cursor, pageSize, err := a.ValidatePagingParams(w, r, DEFAULT_PAGE_SIZE_TX_HISTORY, &maxPageSize)
 	if err != nil {
-		api.HandleError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if pageSize > MAX_PAGE_SIZE_TX_HISTORY {
-		api.HandleError(w, http.StatusBadRequest, fmt.Sprintf("page size max is %d", MAX_PAGE_SIZE_TX_HISTORY))
-		return
-	}
-
-	if pageSize == 0 {
-		api.HandleError(w, http.StatusBadRequest, "page size cannot be 0")
 		return
 	}
 
@@ -239,7 +253,7 @@ func (a *API) SendTx(w http.ResponseWriter, r *http.Request) {
 //
 // responses:
 //
-//	200: TransactionHash
+//	200: GasAmount
 //	400: BadRequestError
 //	500: InternalServerError
 func (a *API) EstimateGas(w http.ResponseWriter, r *http.Request) {

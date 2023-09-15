@@ -6,11 +6,12 @@ export interface Cursor {
   explorerTxid?: string
 }
 
-export interface NodeBlock {
+export interface NodeBlock<Transactions = Array<string>> {
   difficulty: string
   extraData: string
   gasLimit: string
   gasUsed: string
+  baseFeePerGas?: string
   hash: string
   logsBloom: string
   miner: string
@@ -24,12 +25,50 @@ export interface NodeBlock {
   stateRoot: string
   timestamp: string
   totalDifficulty: string
-  transactions: Array<string>
+  transactions: Transactions
   transactionsRoot: string
   uncles: Array<string>
 }
 
-export interface CallStack {
+export interface NodeTransaction {
+  blockHash: string
+  blockNumber: string
+  from: string
+  gas: string
+  gasPrice: string
+  maxPriorityFeePerGas?: string
+  hash: string
+  input: string
+  nonce: string
+  to: string
+  transactionIndex: string
+  value: string
+  type: string
+}
+
+export interface TraceCall {
+  action: {
+    callType: string
+    from: string
+    gas: string
+    input: string
+    to: string
+    value: string
+  }
+  blockHash: string
+  blockNumber: number
+  result: {
+    gasUsed: string
+    output: string
+  }
+  subtraces: number
+  traceAddress: Array<number>
+  transactionHash: string
+  transactionPosition: number
+  type: string
+}
+
+export interface DebugCallStack {
   type: string
   from: string
   to: string
@@ -38,7 +77,7 @@ export interface CallStack {
   gasUsed: string
   input: string
   output: string
-  calls?: Array<CallStack>
+  calls?: Array<DebugCallStack>
 }
 
 export interface ExplorerApiResponse<T> {
@@ -62,4 +101,11 @@ export interface ExplorerInternalTx {
   traceId: string
   isError: string
   errCode: string
+}
+
+export interface FeeHistory {
+  oldestBlock: string
+  baseFeePerGas: Array<string>
+  gasUsedRatio: Array<number>
+  reward: Array<Array<string>>
 }

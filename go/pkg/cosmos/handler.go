@@ -171,19 +171,11 @@ func (h *Handler) GetAccount(pubkey string) (api.Account, error) {
 }
 
 func (h *Handler) GetTxHistory(pubkey string, cursor string, pageSize int) (api.TxHistory, error) {
-	res, err := h.HTTPClient.GetTxHistory(pubkey, cursor, pageSize)
+	sources := TxHistorySources(h.HTTPClient, pubkey, h.FormatTx)
+
+	res, err := h.HTTPClient.GetTxHistory(pubkey, cursor, pageSize, sources)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get tx history")
-	}
-
-	txs := []Tx{}
-	for _, t := range res.Txs {
-		tx, err := h.formatTx(t)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to format transaction: %s", t.Hash)
-		}
-
-		txs = append(txs, *tx)
 	}
 
 	txHistory := TxHistory{
@@ -193,7 +185,28 @@ func (h *Handler) GetTxHistory(pubkey string, cursor string, pageSize int) (api.
 			},
 			Pubkey: pubkey,
 		},
-		Txs: txs,
+		Txs: res.Txs,
+	}
+
+	return txHistory, nil
+}
+
+func (h *Handler) GetValidatorTxHistory(pubkey string, cursor string, pageSize int) (api.TxHistory, error) {
+	sources := ValidatorTxHistorySources(h.HTTPClient, pubkey, h.FormatTx)
+
+	res, err := h.HTTPClient.GetTxHistory(pubkey, cursor, pageSize, sources)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get tx history")
+	}
+
+	txHistory := TxHistory{
+		BaseTxHistory: api.BaseTxHistory{
+			Pagination: api.Pagination{
+				Cursor: res.Cursor,
+			},
+			Pubkey: pubkey,
+		},
+		Txs: res.Txs,
 	}
 
 	return txHistory, nil
@@ -205,9 +218,9 @@ func (h *Handler) GetTx(txid string) (api.Tx, error) {
 		return nil, err
 	}
 
-	t, err := h.formatTx(tx)
+	t, err := h.FormatTx(tx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to format transaction: %s", tx.Hash.String())
+		return nil, errors.Wrapf(err, "failed to format transaction: %s", tx.Hash)
 	}
 
 	return t, nil
@@ -273,7 +286,7 @@ func (h *Handler) GetStaking(pubkey string, apr *big.Float) (*Staking, error) {
 	return staking, nil
 }
 
-func (h *Handler) formatTx(tx *coretypes.ResultTx) (*Tx, error) {
+func (h *Handler) FormatTx(tx *coretypes.ResultTx) (*Tx, error) {
 	height := int(tx.Height)
 
 	block, err := h.BlockService.GetBlock(height)

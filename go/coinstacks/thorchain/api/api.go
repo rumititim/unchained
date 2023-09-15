@@ -16,25 +16,28 @@ package api
 import (
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/shapeshift/unchained/internal/log"
 	"github.com/shapeshift/unchained/pkg/api"
 	"github.com/shapeshift/unchained/pkg/cosmos"
+	"github.com/shapeshift/unchained/pkg/metrics"
 	"github.com/shapeshift/unchained/pkg/websocket"
 )
 
 const (
-	PORT                     = 3000
-	GRACEFUL_SHUTDOWN        = 15 * time.Second
-	WRITE_TIMEOUT            = 15 * time.Second
-	READ_TIMEOUT             = 15 * time.Second
-	IDLE_TIMEOUT             = 60 * time.Second
-	MAX_PAGE_SIZE_TX_HISTORY = 100
+	PORT              = 3000
+	PPROF_PORT        = 3001
+	GRACEFUL_SHUTDOWN = 15 * time.Second
+	WRITE_TIMEOUT     = 15 * time.Second
+	READ_TIMEOUT      = 15 * time.Second
+	IDLE_TIMEOUT      = 60 * time.Second
 )
 
 var logger = log.WithoutFields()
@@ -44,7 +47,7 @@ type API struct {
 	handler *Handler
 }
 
-func New(httpClient *cosmos.HTTPClient, wsClient *cosmos.WSClient, blockService *cosmos.BlockService, swaggerPath string) *API {
+func New(httpClient *cosmos.HTTPClient, wsClient *cosmos.WSClient, blockService *cosmos.BlockService, swaggerPath string, prometheus *metrics.Prometheus) *API {
 	r := mux.NewRouter()
 
 	handler := &Handler{
@@ -56,7 +59,7 @@ func New(httpClient *cosmos.HTTPClient, wsClient *cosmos.WSClient, blockService 
 		},
 	}
 
-	manager := websocket.NewManager()
+	manager := websocket.NewManager(prometheus)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", PORT),
@@ -80,14 +83,20 @@ func New(httpClient *cosmos.HTTPClient, wsClient *cosmos.WSClient, blockService 
 		logger.Panicf("%+v", err)
 	}
 
-	r.Use(api.Scheme)
-	r.Use(api.Logger)
+	// pprof server
+	go func() {
+		logger.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", PPROF_PORT), http.DefaultServeMux))
+	}()
+
+	r.Use(api.Scheme, api.Logger(prometheus))
 
 	r.HandleFunc("/", a.Root).Methods("GET")
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		api.HandleResponse(w, http.StatusOK, map[string]string{"status": "up", "coinstack": "thorchain", "connections": strconv.Itoa(manager.ConnectionCount())})
 	}).Methods("GET")
+
+	r.Handle("/metrics", promhttp.HandlerFor(prometheus.Registry, promhttp.HandlerOpts{}))
 
 	r.HandleFunc("/swagger", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.FromSlash(swaggerPath))

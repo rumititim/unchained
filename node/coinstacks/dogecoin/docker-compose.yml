@@ -1,14 +1,21 @@
-version: '3.6'
+version: '3.8'
 
 services:
   api:
+    image: unchained-local-node
+    env_file: .env
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.dogecoin-api.rule=Host(`api.dogecoin.localhost`)'
       - 'traefik.http.services.dogecoin-api.loadbalancer.server.port=3000'
-    image: unchained-local
-    env_file: .env
-    working_dir: /app/coinstacks/dogecoin/api
+    working_dir: /app/node/coinstacks/dogecoin/api
     command: yarn nodemon
     volumes:
-      - ../..:/app
+      - ../../..:/app
+    networks:
+      - dogecoin
+
+networks:
+  dogecoin:
+    name: dogecoin_default
+    external: true

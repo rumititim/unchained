@@ -1,14 +1,21 @@
-version: '3.6'
+version: '3.8'
 
 services:
   api:
+    image: unchained-local-node
+    env_file: .env
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.ethereum-api.rule=Host(`api.ethereum.localhost`)'
       - 'traefik.http.services.ethereum-api.loadbalancer.server.port=3000'
-    image: unchained-local
-    env_file: .env
-    working_dir: /app/coinstacks/ethereum/api
+    working_dir: /app/node/coinstacks/ethereum/api
     command: yarn nodemon
     volumes:
-      - ../..:/app
+      - ../../..:/app
+    networks:
+      - ethereum
+
+networks:
+  ethereum:
+    name: ethereum_default
+    external: true

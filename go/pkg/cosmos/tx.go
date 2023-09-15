@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/simapp/params"
@@ -17,7 +18,6 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	ibcchanneltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	coretypes "github.com/tendermint/tendermint/rpc/core/types"
@@ -25,13 +25,18 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-func (c *HTTPClient) GetTxHistory(address string, cursor string, pageSize int) (*TxHistoryResponse, error) {
+func (c *HTTPClient) GetTxHistory(address string, cursor string, pageSize int, sources map[string]*TxState) (*TxHistoryResponse, error) {
 	history := &History{
-		ctx:      c.ctx,
-		cursor:   &Cursor{SendPage: 1, ReceivePage: 1},
+		cursor:   &Cursor{State: make(map[string]*CursorState)},
 		pageSize: pageSize,
-		rpc:      c.RPC,
-		encoding: c.encoding,
+		state:    make(map[string]*TxState),
+		client:   c,
+	}
+
+	// set initial source state
+	for source, s := range sources {
+		history.cursor.State[source] = &CursorState{Page: 1}
+		history.state[source] = s
 	}
 
 	if cursor != "" {
@@ -40,19 +45,12 @@ func (c *HTTPClient) GetTxHistory(address string, cursor string, pageSize int) (
 		}
 	}
 
-	history.send = &TxState{
-		hasMore: true,
-		page:    history.cursor.SendPage,
-		query:   fmt.Sprintf(`"message.sender='%s'"`, address),
+	// update sources with current cursor state
+	for source, s := range sources {
+		s.page = history.cursor.State[source].Page
 	}
 
-	history.receive = &TxState{
-		hasMore: true,
-		page:    history.cursor.ReceivePage,
-		query:   fmt.Sprintf(`"transfer.recipient='%s'"`, address),
-	}
-
-	txHistory, err := history.fetch()
+	txHistory, err := history.get()
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get tx history for address: %s", address)
 	}
@@ -61,9 +59,9 @@ func (c *HTTPClient) GetTxHistory(address string, cursor string, pageSize int) (
 }
 
 func (c *HTTPClient) GetTx(txid string) (*coretypes.ResultTx, error) {
-	var res *rpctypes.RPCResponse
+	res := &rpctypes.RPCResponse{}
 
-	_, err := c.RPC.R().SetResult(&res).SetQueryParam("hash", txid).Get("/tx")
+	_, err := c.RPC.R().SetResult(res).SetError(res).SetQueryParam("hash", txid).Get("/tx")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get tx: %s", txid)
 	}
@@ -80,11 +78,37 @@ func (c *HTTPClient) GetTx(txid string) (*coretypes.ResultTx, error) {
 	return tx, nil
 }
 
-func (c *HTTPClient) BroadcastTx(rawTx string) (string, error) {
-	return Broadcast(c.LCD, rawTx)
+func (c *HTTPClient) TxSearch(query string, page int, pageSize int) (*coretypes.ResultTxSearch, error) {
+	res := &rpctypes.RPCResponse{}
+
+	queryParams := map[string]string{
+		"query":    query,
+		"page":     strconv.Itoa(page),
+		"per_page": strconv.Itoa(pageSize),
+		"order_by": "\"desc\"",
+	}
+
+	_, err := c.RPC.R().SetResult(res).SetError(res).SetQueryParams(queryParams).Get("/tx_search")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to search txs")
+	}
+
+	if res.Error != nil {
+		if strings.Contains(res.Error.Data, "page should be within") {
+			return &coretypes.ResultTxSearch{Txs: []*coretypes.ResultTx{}, TotalCount: 0}, nil
+		}
+		return nil, errors.Wrap(errors.New(res.Error.Error()), "failed to search txs")
+	}
+
+	result := &coretypes.ResultTxSearch{}
+	if err := tmjson.Unmarshal(res.Result, result); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal tx search result: %v", res.Result)
+	}
+
+	return result, nil
 }
 
-func Broadcast(client *resty.Client, rawTx string) (string, error) {
+func (c *HTTPClient) BroadcastTx(rawTx string) (string, error) {
 	txBytes, err := base64.StdEncoding.DecodeString(rawTx)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to decode rawTx: %s", rawTx)
@@ -107,7 +131,7 @@ func Broadcast(client *resty.Client, rawTx string) (string, error) {
 		} `json:"tx_response"`
 	}
 
-	_, err = client.R().SetBody(&txtypes.BroadcastTxRequest{TxBytes: txBytes, Mode: txtypes.BroadcastMode_BROADCAST_MODE_SYNC}).SetResult(&res).Post("/cosmos/tx/v1beta1/txs")
+	_, err = c.LCD.R().SetBody(&txtypes.BroadcastTxRequest{TxBytes: txBytes, Mode: txtypes.BroadcastMode_BROADCAST_MODE_SYNC}).SetResult(&res).Post("/cosmos/tx/v1beta1/txs")
 	if err != nil {
 		return "", errors.Wrap(err, "failed to broadcast transaction")
 	}
@@ -141,7 +165,6 @@ func ParseEvents(log string) EventsByMsgIndex {
 	if err != nil {
 		// transaction error logs are not in json format and will fail to parse
 		// return error event with the log message
-		// TODO: Figure out how to better handle this error case
 		events["0"] = AttributesByEvent{"error": ValueByAttribute{"message": log}}
 		return events
 	}
@@ -166,11 +189,8 @@ func ParseEvents(log string) EventsByMsgIndex {
 func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
 	messages := []Message{}
 
-	coinToValue := func(c *sdk.Coin) Value {
-		return Value{
-			Amount: c.Amount.String(),
-			Denom:  c.Denom,
-		}
+	if _, ok := events["0"]["error"]; ok {
+		return messages
 	}
 
 	for i, msg := range msgs {
@@ -178,41 +198,45 @@ func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
 		case *banktypes.MsgSend:
 			message := Message{
 				Addresses: []string{v.FromAddress, v.ToAddress},
+				Index:     strconv.Itoa(i),
 				Origin:    v.FromAddress,
 				From:      v.FromAddress,
 				To:        v.ToAddress,
 				Type:      v.Type(),
-				Value:     coinToValue(&v.Amount[0]),
+				Value:     CoinToValue(&v.Amount[0]),
 			}
 			messages = append(messages, message)
 		case *stakingtypes.MsgDelegate:
 			message := Message{
 				Addresses: []string{v.DelegatorAddress, v.ValidatorAddress},
+				Index:     strconv.Itoa(i),
 				Origin:    v.DelegatorAddress,
 				From:      v.DelegatorAddress,
 				To:        v.ValidatorAddress,
 				Type:      v.Type(),
-				Value:     coinToValue(&v.Amount),
+				Value:     CoinToValue(&v.Amount),
 			}
 			messages = append(messages, message)
 		case *stakingtypes.MsgUndelegate:
 			message := Message{
 				Addresses: []string{v.DelegatorAddress, v.ValidatorAddress},
+				Index:     strconv.Itoa(i),
 				Origin:    v.DelegatorAddress,
 				From:      v.ValidatorAddress,
 				To:        v.DelegatorAddress,
 				Type:      v.Type(),
-				Value:     coinToValue(&v.Amount),
+				Value:     CoinToValue(&v.Amount),
 			}
 			messages = append(messages, message)
 		case *stakingtypes.MsgBeginRedelegate:
 			message := Message{
 				Addresses: []string{v.DelegatorAddress, v.ValidatorSrcAddress, v.ValidatorDstAddress},
+				Index:     strconv.Itoa(i),
 				Origin:    v.DelegatorAddress,
 				From:      v.ValidatorSrcAddress,
 				To:        v.ValidatorDstAddress,
 				Type:      v.Type(),
-				Value:     coinToValue(&v.Amount),
+				Value:     CoinToValue(&v.Amount),
 			}
 			messages = append(messages, message)
 		case *distributiontypes.MsgWithdrawDelegatorReward:
@@ -225,21 +249,23 @@ func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
 
 			message := Message{
 				Addresses: []string{v.DelegatorAddress, v.ValidatorAddress},
+				Index:     strconv.Itoa(i),
 				Origin:    v.DelegatorAddress,
 				From:      v.ValidatorAddress,
 				To:        v.DelegatorAddress,
 				Type:      v.Type(),
-				Value:     coinToValue(&coin),
+				Value:     CoinToValue(&coin),
 			}
 			messages = append(messages, message)
 		case *ibctransfertypes.MsgTransfer:
 			message := Message{
 				Addresses: []string{v.Sender, v.Receiver},
+				Index:     strconv.Itoa(i),
 				Origin:    v.Sender,
 				From:      v.Sender,
 				To:        v.Receiver,
 				Type:      v.Type(),
-				Value:     coinToValue(&v.Token),
+				Value:     CoinToValue(&v.Token),
 			}
 			messages = append(messages, message)
 		case *ibcchanneltypes.MsgRecvPacket:
@@ -259,18 +285,23 @@ func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
 
 			amount := events[strconv.Itoa(i)]["transfer"]["amount"]
 
-			coin, err := sdk.ParseCoinNormalized(amount)
-			if err != nil {
-				logger.Error(err)
-			}
+			value := func() Value {
+				coin, err := sdk.ParseCoinNormalized(amount)
+				if err != nil {
+					return Value{Amount: d.Amount, Denom: d.Denom}
+				}
+
+				return CoinToValue(&coin)
+			}()
 
 			message := Message{
 				Addresses: []string{d.Sender, d.Receiver},
+				Index:     strconv.Itoa(i),
 				Origin:    d.Sender,
 				From:      d.Sender,
 				To:        d.Receiver,
 				Type:      "recv_packet",
-				Value:     coinToValue(&coin),
+				Value:     value,
 			}
 			messages = append(messages, message)
 		}

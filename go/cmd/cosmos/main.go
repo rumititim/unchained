@@ -10,6 +10,7 @@ import (
 	"github.com/shapeshift/unchained/internal/config"
 	"github.com/shapeshift/unchained/internal/log"
 	"github.com/shapeshift/unchained/pkg/cosmos"
+	"github.com/shapeshift/unchained/pkg/metrics"
 )
 
 var (
@@ -21,7 +22,6 @@ var (
 
 // Config for running application
 type Config struct {
-	APIKey  string `mapstructure:"API_KEY"`
 	GRPCURL string `mapstructure:"GRPC_URL"`
 	LCDURL  string `mapstructure:"LCD_URL"`
 	RPCURL  string `mapstructure:"RPC_URL"`
@@ -37,7 +37,7 @@ func main() {
 
 	conf := &Config{}
 	if *envPath == "" {
-		if err := config.LoadFromEnv(conf, "API_KEY", "GRPC_URL", "LCD_URL", "RPC_URL", "WS_URL"); err != nil {
+		if err := config.LoadFromEnv(conf, "GRPC_URL", "LCD_URL", "RPC_URL", "WS_URL"); err != nil {
 			logger.Panicf("failed to load config from env: %+v", err)
 		}
 	} else {
@@ -49,7 +49,6 @@ func main() {
 	encoding := cosmos.NewEncoding()
 
 	cfg := cosmos.Config{
-		APIKey:            conf.APIKey,
 		Bech32AddrPrefix:  "cosmos",
 		Bech32PkPrefix:    "cosmospub",
 		Bech32ValPrefix:   "cosmosvaloper",
@@ -60,6 +59,8 @@ func main() {
 		RPCURL:            conf.RPCURL,
 		WSURL:             conf.WSURL,
 	}
+
+	prometheus := metrics.NewPrometheus("cosmos")
 
 	httpClient, err := cosmos.NewHTTPClient(cfg)
 	if err != nil {
@@ -81,7 +82,7 @@ func main() {
 		logger.Panicf("failed to create new websocket client: %+v", err)
 	}
 
-	api := api.New(httpClient, grpcClient, wsClient, blockService, *swaggerPath)
+	api := api.New(httpClient, grpcClient, wsClient, blockService, *swaggerPath, prometheus)
 	defer api.Shutdown()
 
 	go api.Serve(errChan)

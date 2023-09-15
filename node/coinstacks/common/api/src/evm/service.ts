@@ -2,29 +2,41 @@ import axios from 'axios'
 import axiosRetry from 'axios-retry'
 import BigNumber from 'bignumber.js'
 import { ethers } from 'ethers'
-import { ApiError as BlockbookApiError, Blockbook, Tx as BlockbookTx } from '@shapeshiftoss/blockbook'
+import { Blockbook, Tx as BlockbookTx } from '@shapeshiftoss/blockbook'
 import { Logger } from '@shapeshiftoss/logger'
 import { ApiError, BadRequestError, BaseAPI, RPCRequest, RPCResponse, SendTxBody } from '../'
-import { Account, API, TokenBalance, Tx, TxHistory, GasFees, InternalTx } from './models'
-import { Cursor, NodeBlock, CallStack, ExplorerApiResponse, ExplorerInternalTx } from './types'
-import { formatAddress } from './utils'
+import {
+  Account,
+  API,
+  TokenBalance,
+  Tx,
+  TxHistory,
+  GasFees,
+  InternalTx,
+  GasEstimate,
+  TokenMetadata,
+  TokenType,
+} from './models'
+import { Cursor, NodeBlock, DebugCallStack, ExplorerApiResponse, ExplorerInternalTx, TraceCall } from './types'
+import { GasOracle } from './gasOracle'
+import { formatAddress, handleError } from './utils'
+import { validatePageSize } from '../utils'
+import { ERC1155_ABI } from './abi/erc1155'
+import { ERC721_ABI } from './abi/erc721'
+import { AxiosError } from 'axios'
+
+const axiosNoRetry = axios.create({ timeout: 5000 })
+
+type InternalTxFetchMethod = 'trace_transaction' | 'debug_traceTransaction'
 
 axiosRetry(axios, { retries: 5, retryDelay: axiosRetry.exponentialDelay })
 
-const handleError = (err: unknown): ApiError => {
-  if (err instanceof BlockbookApiError) {
-    return new ApiError(err.response?.statusText ?? 'Internal Server Error', err.response?.status ?? 500, err.message)
-  }
-
-  if (err instanceof Error) {
-    return new ApiError('Internal Server Error', 500, err.message)
-  }
-
-  return new ApiError('Internal Server Error', 500, 'unknown error')
-}
+const exponentialDelay = async (retryCount: number) =>
+  new Promise((resolve) => setTimeout(resolve, axiosRetry.exponentialDelay(retryCount)))
 
 export interface ServiceArgs {
   blockbook: Blockbook
+  gasOracle: GasOracle
   explorerApiKey?: string
   explorerApiUrl: string
   logger: Logger
@@ -34,19 +46,27 @@ export interface ServiceArgs {
 
 export class Service implements Omit<BaseAPI, 'getInfo'>, API {
   private readonly blockbook: Blockbook
+  private readonly gasOracle: GasOracle
   private readonly explorerApiKey?: string
   private readonly explorerApiUrl: string
   private readonly logger: Logger
   private readonly provider: ethers.providers.JsonRpcProvider
   private readonly rpcUrl: string
+  private readonly abiInterface: Record<TokenType, ethers.utils.Interface> = {
+    erc721: new ethers.utils.Interface(ERC721_ABI),
+    erc1155: new ethers.utils.Interface(ERC1155_ABI),
+  }
 
   constructor(args: ServiceArgs) {
     this.blockbook = args.blockbook
+    this.gasOracle = args.gasOracle
     this.explorerApiKey = args.explorerApiKey
     this.explorerApiUrl = args.explorerApiUrl
-    this.logger = args.logger
+    this.logger = args.logger.child({ namespace: ['service'] })
     this.provider = args.provider
     this.rpcUrl = args.rpcUrl
+
+    this.gasOracle.start()
   }
 
   async getAccount(pubkey: string): Promise<Account> {
@@ -54,16 +74,47 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
       const data = await this.blockbook.getAddress(pubkey, undefined, undefined, undefined, undefined, 'tokenBalances')
 
       const tokens = (data.tokens ?? []).reduce<Array<TokenBalance>>((prev, token) => {
-        if (token.balance && token.contract && token.decimals && token.symbol) {
+        // erc20/bep20
+        if (token.balance && token.contract) {
           prev.push({
             balance: token.balance,
             contract: token.contract,
-            decimals: token.decimals,
+            decimals: token.decimals ?? 0,
             name: token.name,
-            symbol: token.symbol,
+            symbol: token.symbol ?? '',
             type: token.type,
           })
         }
+
+        // erc721/bep721
+        token.ids?.forEach((id) => {
+          if (!token.contract) return
+
+          prev.push({
+            balance: '1',
+            contract: token.contract,
+            decimals: 0,
+            name: token.name,
+            symbol: token.symbol ?? '',
+            type: token.type,
+            id,
+          })
+        })
+
+        // erc721/bep721
+        token.multiTokenValues?.forEach((multiToken) => {
+          if (!token.contract) return
+
+          prev.push({
+            balance: multiToken.value,
+            contract: token.contract,
+            decimals: 0,
+            name: token.name,
+            symbol: token.symbol ?? '',
+            type: token.type,
+            id: multiToken.id,
+          })
+        })
 
         return prev
       }, [])
@@ -81,7 +132,7 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
   }
 
   async getTxHistory(pubkey: string, cursor?: string, pageSize = 10): Promise<TxHistory> {
-    if (pageSize <= 0) throw new ApiError('Bad Request', 422, 'page size must be greater than 0')
+    validatePageSize(pageSize)
 
     const curCursor = ((): Cursor => {
       try {
@@ -126,6 +177,7 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
           // process pending txs first, no associated internal txs
 
           txs.push({ ...blockbookTx })
+          blockbookTxs.delete(blockbookTx.txid)
           curCursor.blockbookTxid = blockbookTx.txid
         } else if (blockbookTx && blockbookTx.blockHeight >= (internalTx?.blockHeight ?? -2)) {
           // process transactions in descending order prioritizing confirmed, include associated internal txs
@@ -194,11 +246,11 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     }
   }
 
-  async estimateGas(data: string, from: string, to: string, value: string): Promise<string> {
+  async estimateGas(data: string, from: string, to: string, value: string): Promise<GasEstimate> {
     try {
       const tx: ethers.providers.TransactionRequest = { data, from, to, value: ethers.utils.parseUnits(value, 'wei') }
-      const estimatedGas = await this.provider.estimateGas(tx)
-      return estimatedGas?.toString()
+      const gasLimit = await this.provider.estimateGas(tx)
+      return { gasLimit: gasLimit.toString() }
     } catch (err) {
       throw new ApiError('Internal Server Error', 500, JSON.stringify(err))
     }
@@ -206,15 +258,27 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
 
   async getGasFees(): Promise<GasFees> {
     try {
-      const feeData = await this.provider.getFeeData()
-      if (!feeData.gasPrice || !feeData.maxFeePerGas || !feeData.maxPriorityFeePerGas) {
-        throw { message: 'no fee data returned from node' }
-      }
+      // fetch legacy gas price estimate from the node
+      const gasPrice = (await this.provider.send('eth_gasPrice', [])) as string
+
+      const { baseFeePerGas, maxPriorityFeePerGas } = await (async () => {
+        const baseFeePerGas = this.gasOracle.getBaseFeePerGas()
+        if (!baseFeePerGas) return {}
+
+        // fetch maxPriorityFeePerGas estimate from the node
+        const maxPriorityFeePerGas = (await this.provider.send('eth_maxPriorityFeePerGas', [])) as string
+        return { baseFeePerGas, maxPriorityFeePerGas: Number(maxPriorityFeePerGas).toString() }
+      })()
+
+      const estimatedFees = await this.gasOracle.estimateFees([1, 60, 90])
 
       return {
-        gasPrice: feeData.gasPrice.toString(),
-        maxFeePerGas: feeData.maxFeePerGas.toString(),
-        maxPriorityFeePerGas: feeData.maxPriorityFeePerGas.toString(),
+        gasPrice: Number(gasPrice).toString(),
+        baseFeePerGas,
+        maxPriorityFeePerGas,
+        slow: estimatedFees['1'],
+        average: estimatedFees['60'],
+        fast: estimatedFees['90'],
       }
     } catch (err) {
       throw new ApiError('Internal Server Error', 500, JSON.stringify(err))
@@ -230,7 +294,7 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     }
   }
 
-  async handleBlock(hash: string): Promise<Array<BlockbookTx>> {
+  async handleBlock(hash: string, retryCount = 0): Promise<Array<BlockbookTx>> {
     const request: RPCRequest = {
       jsonrpc: '2.0',
       id: `eth_getBlockByHash-${hash}`,
@@ -241,7 +305,14 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     const { data } = await axios.post<RPCResponse>(this.rpcUrl, request)
 
     if (data.error) throw new Error(`failed to get block: ${hash}: ${data.error.message}`)
-    if (!data.result) throw new Error(`failed to get block: ${hash}: ${JSON.stringify(data)}`)
+
+    // retry if no results are returned, this typically means we queried a node that hasn't indexed the data yet
+    if (!data.result) {
+      if (retryCount >= 5) throw new Error(`failed to get block: ${hash}: ${JSON.stringify(data)}`)
+      retryCount++
+      await exponentialDelay(retryCount)
+      return this.handleBlock(hash, retryCount)
+    }
 
     const block = data.result as NodeBlock
 
@@ -273,16 +344,45 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
       gasUsed: tx.ethereumSpecific.gasUsed?.toString() ?? '0',
       gasPrice: tx.ethereumSpecific.gasPrice.toString(),
       inputData: inputData && inputData !== '0x' && inputData !== '0x0' ? inputData : undefined,
-      tokenTransfers: tx.tokenTransfers?.map((tt) => ({
-        contract: tt.token,
-        decimals: tt.decimals,
-        name: tt.name,
-        symbol: tt.symbol,
-        type: tt.type,
-        from: tt.from,
-        to: tt.to,
-        value: tt.value,
-      })),
+      tokenTransfers: tx.tokenTransfers?.map((tt) => {
+        const value = (() => {
+          switch (tt.type) {
+            case 'ERC721':
+            case 'BEP721':
+              return '1'
+            case 'ERC1155':
+            case 'BEP1155':
+              return tt.multiTokenValues?.[0]?.value ?? '0'
+            default:
+              return tt.value
+          }
+        })()
+
+        const id = (() => {
+          switch (tt.type) {
+            case 'ERC721':
+            case 'BEP721':
+              return tt.value
+            case 'ERC1155':
+            case 'BEP1155':
+              return tt.multiTokenValues?.[0]?.id
+            default:
+              return
+          }
+        })()
+
+        return {
+          contract: tt.contract,
+          decimals: tt.decimals,
+          name: tt.name,
+          symbol: tt.symbol,
+          type: tt.type,
+          from: tt.from,
+          to: tt.to,
+          value,
+          id,
+        }
+      }),
     }
   }
 
@@ -291,7 +391,10 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
    *
    * __not suitable for use on historical transactions when using a full node as the evm state is purged__
    */
-  async handleTransactionWithInternalTrace(tx: BlockbookTx): Promise<Tx> {
+  async handleTransactionWithInternalTrace(
+    tx: BlockbookTx,
+    internalTxMethod: InternalTxFetchMethod = 'debug_traceTransaction'
+  ): Promise<Tx> {
     const t = this.handleTransaction(tx)
 
     // don't trace pending transactions as they have no committed state to trace
@@ -301,7 +404,11 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     // allow transaction to be handled even if we fail to get internal transactions (some better than none)
     const internalTxs = await (async () => {
       try {
-        return await this.fetchInternalTxsTrace(tx.txid)
+        if (internalTxMethod === 'trace_transaction') {
+          return await this.fetchInternalTxsTrace(tx.txid)
+        } else {
+          return await this.fetchInternalTxsDebug(tx.txid)
+        }
       } catch (err) {
         return undefined
       }
@@ -312,10 +419,50 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     return t
   }
 
-  private async fetchInternalTxsTrace(txid: string): Promise<Array<InternalTx> | undefined> {
+  private async fetchInternalTxsTrace(txid: string, retryCount = 0): Promise<Array<InternalTx> | undefined> {
     const request: RPCRequest = {
       jsonrpc: '2.0',
-      id: `traceTransaction${txid}`,
+      id: `trace_transaction${txid}`,
+      method: 'trace_transaction',
+      params: [txid],
+    }
+
+    const { data } = await axios.post<RPCResponse>(this.rpcUrl, request)
+
+    if (data.error) throw new Error(`failed to get internalTransactions for txid: ${txid}: ${data.error.message}`)
+
+    // retry if no results are returned, this typically means we queried a node that hasn't indexed the data yet
+    if (!data.result) {
+      if (retryCount >= 5) throw new Error(`failed to get internalTransactions for txid: ${txid}`)
+      retryCount++
+      await exponentialDelay(retryCount)
+      return this.fetchInternalTxsTrace(txid, retryCount)
+    }
+
+    const callStack = data.result as Array<TraceCall>
+
+    const txs = callStack.reduce<Array<InternalTx>>((prev, call) => {
+      const value = new BigNumber(call.action.value ?? 0)
+      const gas = new BigNumber(call.action.gas)
+
+      if (value.gt(0) && gas.gt(0)) {
+        prev.push({
+          from: formatAddress(call.action.from),
+          to: formatAddress(call.action.to),
+          value: value.toString(),
+        })
+      }
+
+      return prev
+    }, [])
+
+    return txs.length ? txs : undefined
+  }
+
+  private async fetchInternalTxsDebug(txid: string, retryCount = 0): Promise<Array<InternalTx> | undefined> {
+    const request: RPCRequest = {
+      jsonrpc: '2.0',
+      id: `debug_traceTransaction${txid}`,
       method: 'debug_traceTransaction',
       params: [txid, { tracer: 'callTracer' }],
     }
@@ -323,11 +470,21 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     const { data } = await axios.post<RPCResponse>(this.rpcUrl, request)
 
     if (data.error) throw new Error(`failed to get internalTransactions for txid: ${txid}: ${data.error.message}`)
-    if (!data.result) throw new Error(`failed to get internalTransactions for txid: ${txid}`)
 
-    const callStack = data.result as CallStack
+    // retry if no results are returned, this typically means we queried a node that hasn't indexed the data yet
+    if (!data.result) {
+      if (retryCount >= 5) throw new Error(`failed to get internalTransactions for txid: ${txid}`)
+      retryCount++
+      await exponentialDelay(retryCount)
+      return this.fetchInternalTxsDebug(txid, retryCount)
+    }
 
-    const processCallStack = (calls?: Array<CallStack>, txs: Array<InternalTx> = []): Array<InternalTx> | undefined => {
+    const callStack = data.result as DebugCallStack
+
+    const processCallStack = (
+      calls?: Array<DebugCallStack>,
+      txs: Array<InternalTx> = []
+    ): Array<InternalTx> | undefined => {
       if (!calls) return
 
       calls.forEach((call) => {
@@ -402,6 +559,8 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
 
     let doneFiltering = false
     const filteredInternalTxs = internalTxs.reduce((prev, internalTx) => {
+      if (!internalTx.value || internalTx.value === '0') return prev
+
       if (!doneFiltering && cursor.blockHeight && cursor.explorerTxid) {
         // skip any transactions from blocks that we have already returned
         if (Number(internalTx.blockNumber) > cursor.blockHeight) return prev
@@ -524,6 +683,97 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
     return {
       hasMore: cursor.blockbookPage < (blockbookData.totalPages ?? -1) ? true : false,
       txs: blockbookTxs,
+    }
+  }
+
+  async getTokenMetadata(address: string, id: string, type: TokenType): Promise<TokenMetadata> {
+    const substitue = (data: string, id: string, hexEncoded: boolean): string => {
+      if (!data.includes('{id}')) return data
+      if (!hexEncoded) return data.replace('{id}', id)
+      return data.replace('{id}', new BigNumber(id).toString(16).padStart(64, '0').toLowerCase())
+    }
+
+    const makeUrl = (url: string): string => {
+      if (url.startsWith('ipfs://')) {
+        return url.replace('ipfs://', 'https://gateway.shapeshift.com/ipfs/')
+      }
+
+      if (url.startsWith('ipns://')) {
+        return url.replace('ipns://', 'https://gateway.shapeshift.com/ipns/')
+      }
+
+      return url
+    }
+
+    try {
+      const contract = new ethers.Contract(address, this.abiInterface[type], this.provider)
+
+      const uri = (await (() => {
+        switch (type) {
+          case 'erc721':
+            return contract.tokenURI(id)
+          case 'erc1155':
+            return contract.uri(id)
+          default:
+            throw new Error(`invalid token type: ${type}`)
+        }
+      })()) as string
+
+      const metadata = await (async () => {
+        // handle base64 encoded metadata
+        if (uri.startsWith('data:application/json;base64')) {
+          const [, b64] = uri.split(',')
+          return JSON.parse(Buffer.from(b64, 'base64').toString())
+        }
+
+        try {
+          // attempt to get metadata using hex encoded id as per erc spec
+          const { data } = await axiosNoRetry.get(makeUrl(substitue(uri, id, true)))
+          return data
+        } catch (err) {
+          // don't retry on timeout, assume host is offline
+          if (err instanceof AxiosError && err.code === AxiosError.ECONNABORTED) return {}
+
+          try {
+            // not everyone follows the spec, attempt to get metadata using id string
+            const { data } = await axiosNoRetry.get(makeUrl(substitue(uri, id, false)))
+            return data
+          } catch (err) {
+            // swallow error and return empty object if unable to fetch metadata
+            return {}
+          }
+        }
+      })()
+
+      const mediaUrl = metadata?.image ? makeUrl(metadata.image) : ''
+
+      const mediaType = await (async () => {
+        if (!mediaUrl) return
+
+        try {
+          const { headers } = await axiosNoRetry.head(mediaUrl)
+          return headers['content-type']?.includes('video') ? 'video' : 'image'
+        } catch (err) {
+          return
+        }
+      })()
+
+      return {
+        name: metadata?.name ?? '',
+        description: metadata?.description ?? '',
+        media: {
+          url: mediaUrl,
+          type: mediaType,
+        },
+      }
+    } catch (err) {
+      this.logger.error(err, 'failed to fetch token metadata')
+
+      return {
+        name: '',
+        description: '',
+        media: { url: '' },
+      }
     }
   }
 }

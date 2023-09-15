@@ -10,8 +10,18 @@ import {
   SendTxBody,
   ValidationError,
 } from '../../../common/api/src' // unable to import models from a module with tsoa
-import { API, Account, GasFees, Tx, TxHistory } from '../../../common/api/src/evm' // unable to import models from a module with tsoa
+import {
+  API,
+  Account,
+  GasFees,
+  Tx,
+  TxHistory,
+  GasEstimate,
+  TokenMetadata,
+  TokenType,
+} from '../../../common/api/src/evm' // unable to import models from a module with tsoa
 import { Service } from '../../../common/api/src/evm/service'
+import { GasOracle } from '../../../common/api/src/evm/gasOracle'
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY
 const INDEXER_URL = process.env.INDEXER_URL
@@ -30,11 +40,13 @@ export const logger = new Logger({
   level: process.env.LOG_LEVEL,
 })
 
-const blockbook = new Blockbook({ httpURL: INDEXER_URL, wsURL: INDEXER_WS_URL }, 60000)
+const blockbook = new Blockbook({ httpURL: INDEXER_URL, wsURL: INDEXER_WS_URL })
 const provider = new ethers.providers.JsonRpcProvider(RPC_URL)
+export const gasOracle = new GasOracle({ logger, provider, coinstack: 'ethereum' })
 
 export const service = new Service({
   blockbook,
+  gasOracle,
   explorerApiKey: ETHERSCAN_API_KEY,
   explorerApiUrl: 'https://api.etherscan.io/api',
   provider,
@@ -176,14 +188,14 @@ export class Ethereum extends Controller implements BaseAPI, API {
    * @param {string} to to address
    * @param {string} value transaction value in wei
    *
-   * @returns {Promise<string>} estimated gas cost
+   * @returns {Promise<GasEstimate>} estimated gas cost
    *
    * @example data "0x"
    * @example from "0x0000000000000000000000000000000000000000"
    * @example to "0x642F4Bda144C63f6DC47EE0fDfbac0a193e2eDb7"
    * @example value "1337"
    */
-  @Example<string>('26540')
+  @Example<GasEstimate>({ gasLimit: '26540' })
   @Response<ValidationError>(422, 'Validation Error')
   @Response<InternalServerError>(500, 'Internal Server Error')
   @Get('/gas/estimate')
@@ -192,7 +204,7 @@ export class Ethereum extends Controller implements BaseAPI, API {
     @Query() from: string,
     @Query() to: string,
     @Query() value: string
-  ): Promise<string> {
+  ): Promise<GasEstimate> {
     return service.estimateGas(data, from, to, value)
   }
 
@@ -205,9 +217,24 @@ export class Ethereum extends Controller implements BaseAPI, API {
    * @returns {Promise<GasFees>} current fees specified in wei
    */
   @Example<GasFees>({
-    gasPrice: '172301756423',
-    maxFeePerGas: '342603512846',
-    maxPriorityFeePerGas: '1000000000',
+    gasPrice: '77125288868',
+    baseFeePerGas: '77654025212',
+    maxPriorityFeePerGas: '94000001',
+    slow: {
+      gasPrice: '77109280451',
+      maxFeePerGas: '77744243213',
+      maxPriorityFeePerGas: '90218001',
+    },
+    average: {
+      gasPrice: '78637140239',
+      maxFeePerGas: '79158075213',
+      maxPriorityFeePerGas: '1504050001',
+    },
+    fast: {
+      gasPrice: '85079071846',
+      maxFeePerGas: '89883761218',
+      maxPriorityFeePerGas: '12229736006',
+    },
   })
   @Response<InternalServerError>(500, 'Internal Server Error')
   @Get('/gas/fees')
@@ -233,5 +260,37 @@ export class Ethereum extends Controller implements BaseAPI, API {
   @Post('send/')
   async sendTx(@Body() body: SendTxBody): Promise<string> {
     return service.sendTx(body)
+  }
+
+  /**
+   * Get token metadata
+   *
+   * @param {string} contract contract address
+   * @param {string} id token identifier
+   * @param {TokenType} type token type (erc721 or erc1155)
+   *
+   * @returns {Promise<TokenMetadata>} token metadata
+   *
+   * @example contractAddress "0x4Db1f25D3d98600140dfc18dEb7515Be5Bd293Af"
+   * @example id "3150"
+   * @example type "erc721"
+   */
+  @Example<TokenMetadata>({
+    name: 'HAPE #3150',
+    description: '8192 next-generation, high-fashion HAPES.',
+    media: {
+      url: 'https://meta.hapeprime.com/3150.png',
+      type: 'image',
+    },
+  })
+  @Response<ValidationError>(422, 'Validation Error')
+  @Response<InternalServerError>(500, 'Internal Server Error')
+  @Get('/metadata/token')
+  async getTokenMetadata(
+    @Query() contract: string,
+    @Query() id: string,
+    @Query() type: TokenType
+  ): Promise<TokenMetadata> {
+    return service.getTokenMetadata(contract, id, type)
   }
 }

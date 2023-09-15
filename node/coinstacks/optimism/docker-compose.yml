@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    image: unchained-local-node
+    env_file: .env
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.optimism-api.rule=Host(`api.optimism.localhost`)'
+      - 'traefik.http.services.optimism-api.loadbalancer.server.port=3000'
+    working_dir: /app/node/coinstacks/optimism/api
+    command: yarn nodemon
+    volumes:
+      - ../../..:/app
+    networks:
+      - optimism
+
+networks:
+  optimism:
+    name: optimism_default
+    external: true

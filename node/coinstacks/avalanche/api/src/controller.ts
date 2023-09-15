@@ -10,8 +10,18 @@ import {
   SendTxBody,
   ValidationError,
 } from '../../../common/api/src' // unable to import models from a module with tsoa
-import { API, Account, GasFees, Tx, TxHistory } from '../../../common/api/src/evm' // unable to import models from a module with tsoa
+import {
+  API,
+  Account,
+  GasFees,
+  Tx,
+  TxHistory,
+  GasEstimate,
+  TokenMetadata,
+  TokenType,
+} from '../../../common/api/src/evm' // unable to import models from a module with tsoa
 import { Service } from '../../../common/api/src/evm/service'
+import { GasOracle } from '../../../common/api/src/evm/gasOracle'
 
 const INDEXER_URL = process.env.INDEXER_URL
 const INDEXER_WS_URL = process.env.INDEXER_WS_URL
@@ -30,9 +40,11 @@ export const logger = new Logger({
 
 const blockbook = new Blockbook({ httpURL: INDEXER_URL, wsURL: INDEXER_WS_URL })
 const provider = new ethers.providers.JsonRpcProvider(RPC_URL)
+export const gasOracle = new GasOracle({ logger, provider, coinstack: 'avalanche' })
 
 export const service = new Service({
   blockbook,
+  gasOracle,
   explorerApiUrl: 'https://api.snowtrace.io/api',
   provider,
   logger,
@@ -171,14 +183,14 @@ export class Avalanche extends Controller implements BaseAPI, API {
    * @param {string} to to address
    * @param {string} value transaction value in wei
    *
-   * @returns {Promise<string>} estimated gas cost
+   * @returns {Promise<GasEstimate>} estimated gas cost
    *
    * @example data "0x"
    * @example from "0x0000000000000000000000000000000000000000"
    * @example to "0x9D1170D30944F2E30664Be502aC57F6096fB5366"
    * @example value "1337"
    */
-  @Example<string>('21000')
+  @Example<GasEstimate>({ gasLimit: '21000' })
   @Response<ValidationError>(422, 'Validation Error')
   @Response<InternalServerError>(500, 'Internal Server Error')
   @Get('/gas/estimate')
@@ -187,7 +199,7 @@ export class Avalanche extends Controller implements BaseAPI, API {
     @Query() from: string,
     @Query() to: string,
     @Query() value: string
-  ): Promise<string> {
+  ): Promise<GasEstimate> {
     return service.estimateGas(data, from, to, value)
   }
 
@@ -201,8 +213,23 @@ export class Avalanche extends Controller implements BaseAPI, API {
    */
   @Example<GasFees>({
     gasPrice: '25000000000',
-    maxFeePerGas: '51500000000',
-    maxPriorityFeePerGas: '1500000000',
+    baseFeePerGas: '25000000000',
+    maxPriorityFeePerGas: '0',
+    slow: {
+      gasPrice: '25757584186',
+      maxFeePerGas: '28394352138',
+      maxPriorityFeePerGas: '3394352138',
+    },
+    average: {
+      gasPrice: '28228764956',
+      maxFeePerGas: '32489417391',
+      maxPriorityFeePerGas: '7489417391',
+    },
+    fast: {
+      gasPrice: '38695403370',
+      maxFeePerGas: '47086501038',
+      maxPriorityFeePerGas: '22086501038',
+    },
   })
   @Response<InternalServerError>(500, 'Internal Server Error')
   @Get('/gas/fees')
@@ -228,5 +255,38 @@ export class Avalanche extends Controller implements BaseAPI, API {
   @Post('send/')
   async sendTx(@Body() body: SendTxBody): Promise<string> {
     return service.sendTx(body)
+  }
+
+  /**
+   * Get token metadata
+   *
+   * @param {string} contract contract address
+   * @param {string} id token identifier
+   * @param {TokenType} type token type (erc721 or erc1155)
+   *
+   * @returns {Promise<TokenMetadata>} token metadata
+   *
+   * @example contractAddress "0x3025C5c2aA6eb7364555aAC0074292195701bBD6"
+   * @example id "4525"
+   * @example type "erc721"
+   */
+  @Example<TokenMetadata>({
+    name: 'MadSkullz #5136',
+    description:
+      'MadSkullz #5136 is one of the 6666 NFTs from MadSkullz Collection that are joining SkullzCity to fight for Freedomz.',
+    media: {
+      url: 'https://cdn.madskullz.io/madskullz/images/5136.png',
+      type: 'image',
+    },
+  })
+  @Response<ValidationError>(422, 'Validation Error')
+  @Response<InternalServerError>(500, 'Internal Server Error')
+  @Get('/metadata/token')
+  async getTokenMetadata(
+    @Query() contract: string,
+    @Query() id: string,
+    @Query() type: TokenType
+  ): Promise<TokenMetadata> {
+    return service.getTokenMetadata(contract, id, type)
   }
 }

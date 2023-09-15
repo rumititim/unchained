@@ -1,22 +1,32 @@
 #!/bin/bash
 
+DISABLE_READINESS_PROBE=/data/disable_readiness
+
+if [[ -f "$DISABLE_READINESS_PROBE" ]]; then
+  echo "readiness probe disabled"
+  exit 0
+fi
+
 TOLERANCE=1
 
-BLOCKHEIGHT_LOCAL=$(curl -s -H 'content-type: application/json' -u user:password  -d '{ "jsonrpc": "1.0", "id": "getinfo", "method": "getblockchaininfo", "params": [] }' http://localhost:8332 | jq .result.blocks)
-BLOCKHEIGHT_REMOTE_SOURCE_1=$(curl -s https://sochain.com/api/v2/get_info/btc | jq .data.blocks)
-BLOCKHEIGHT_REMOTE_SOURCE_2=$(curl -s https://api.blockcypher.com/v1/btc/main | jq .height)
+CONNECTION_COUNT=$(curl -sf -H 'content-type: application/json' -u user:password -d '{ "jsonrpc": "2.0", "id": "probe", "method": "getconnectioncount", "params": [] }' http://localhost:8332) || exit 1
+BLOCKCHAIN_INFO=$(curl -sf -H 'content-type: application/json' -u user:password -d '{ "jsonrpc": "2.0", "id": "probe", "method": "getblockchaininfo", "params": [] }' http://localhost:8332) || exit 1
 
-ARRAY=($BLOCKHEIGHT_REMOTE_SOURCE_1 $BLOCKHEIGHT_REMOTE_SOURCE_2)
-BLOCKHEIGHT_BEST=${ARRAY[0]}
-for n in "${ARRAY[@]}"; do
-  ((n > BLOCKHEIGHT_BEST)) && BLOCKHEIGHT_BEST=$n
-done
+PEERS=$(echo $CONNECTION_COUNT | jq -r '.result')
+NODE_LATEST_BLOCK_HEIGHT=$(echo $BLOCKCHAIN_INFO | jq -r '.result.blocks')
+NETWORK_LATEST_BLOCK_HEIGHT=$(echo $BLOCKCHAIN_INFO | jq -r '.result.headers')
 
-BLOCKHEIGHT_NOMINAL=$(( $BLOCKHEIGHT_LOCAL + $TOLERANCE ))
-if [[ $BLOCKHEIGHT_BEST -gt $BLOCKHEIGHT_NOMINAL ]]; then
-  echo "node is still syncing"
+NOMINAL_BLOCKS=$(( $NETWORK_LATEST_BLOCK_HEIGHT - $TOLERANCE ))
+
+if (( $NODE_LATEST_BLOCK_HEIGHT >= $NOMINAL_BLOCKS )); then
+  if (( $PEERS > 0 )); then
+    echo "node is synced with $PEERS peers"
+    exit 0
+  fi
+
+  echo "node is synced, but has no peers"
   exit 1
 fi
 
-echo "node is synced"
-exit 0
+echo "node is still syncing"
+exit 1

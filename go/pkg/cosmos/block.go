@@ -2,6 +2,7 @@ package cosmos
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -11,7 +12,7 @@ import (
 )
 
 type BlockFetcher interface {
-	GetBlock(height *int) (*BlockResponse, error)
+	GetBlock(height *int) (*coretypes.ResultBlock, error)
 }
 
 type BlockService struct {
@@ -27,9 +28,15 @@ func NewBlockService(httpClient BlockFetcher) (*BlockService, error) {
 		httpClient: httpClient,
 	}
 
-	block, err := s.httpClient.GetBlock(nil)
+	result, err := s.httpClient.GetBlock(nil)
 	if err != nil {
 		return nil, errors.WithStack(err)
+	}
+
+	block := &BlockResponse{
+		Height:    int(result.Block.Height),
+		Hash:      result.Block.Hash().String(),
+		Timestamp: int(result.Block.Time.Unix()),
 	}
 
 	s.WriteBlock(block, true)
@@ -51,9 +58,15 @@ func (s *BlockService) GetBlock(height int) (*BlockResponse, error) {
 		return block, nil
 	}
 
-	block, err := s.httpClient.GetBlock(&height)
+	result, err := s.httpClient.GetBlock(&height)
 	if err != nil {
 		return nil, errors.WithStack(err)
+	}
+
+	block := &BlockResponse{
+		Height:    int(result.Block.Height),
+		Hash:      result.Block.Hash().String(),
+		Timestamp: int(result.Block.Time.Unix()),
 	}
 
 	s.WriteBlock(block, false)
@@ -61,15 +74,15 @@ func (s *BlockService) GetBlock(height int) (*BlockResponse, error) {
 	return block, nil
 }
 
-func (c *HTTPClient) GetBlock(height *int) (*BlockResponse, error) {
-	var res *rpctypes.RPCResponse
+func (c *HTTPClient) GetBlock(height *int) (*coretypes.ResultBlock, error) {
+	res := &rpctypes.RPCResponse{}
 
 	hs := ""
 	if height != nil {
 		hs = strconv.Itoa(*height)
 	}
 
-	_, err := c.RPC.R().SetResult(&res).SetQueryParam("height", hs).Get("/block")
+	_, err := c.RPC.R().SetResult(res).SetError(res).SetQueryParam("height", hs).Get("/block")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get block: %d", height)
 	}
@@ -78,16 +91,56 @@ func (c *HTTPClient) GetBlock(height *int) (*BlockResponse, error) {
 		return nil, errors.Errorf("failed to get block: %s: %s", hs, res.Error.Error())
 	}
 
-	block := &coretypes.ResultBlock{}
-	if err := tmjson.Unmarshal(res.Result, block); err != nil {
+	result := &coretypes.ResultBlock{}
+	if err := tmjson.Unmarshal(res.Result, result); err != nil {
 		return nil, errors.Errorf("failed to unmarshal block result: %v: %s", res.Result, res.Error.Error())
 	}
 
-	b := &BlockResponse{
-		Height:    int(block.Block.Height),
-		Hash:      block.BlockID.Hash.String(),
-		Timestamp: int(block.Block.Time.Unix()),
+	return result, nil
+}
+
+func (c *HTTPClient) BlockSearch(query string, page int, pageSize int) (*coretypes.ResultBlockSearch, error) {
+	res := &rpctypes.RPCResponse{}
+
+	queryParams := map[string]string{
+		"query":    query,
+		"page":     strconv.Itoa(page),
+		"per_page": strconv.Itoa(pageSize),
+		"order_by": "\"desc\"",
 	}
 
-	return b, nil
+	_, err := c.RPC.R().SetResult(res).SetError(res).SetQueryParams(queryParams).Get("/block_search")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to search blocks")
+	}
+
+	if res.Error != nil {
+		if strings.Contains(res.Error.Data, "page should be within") {
+			return &coretypes.ResultBlockSearch{Blocks: []*coretypes.ResultBlock{}, TotalCount: 0}, nil
+		}
+		return nil, errors.Wrap(errors.New(res.Error.Error()), "failed to search blocks")
+	}
+
+	result := &coretypes.ResultBlockSearch{}
+	if err := tmjson.Unmarshal(res.Result, result); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal block search result: %v", res.Result)
+	}
+
+	return result, nil
+}
+
+func (c *HTTPClient) BlockResults(height int) (*coretypes.ResultBlockResults, error) {
+	res := &rpctypes.RPCResponse{}
+
+	_, err := c.RPC.R().SetResult(res).SetError(res).SetQueryParam("height", strconv.Itoa(height)).Get("/block_results")
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get block results for block: %v", height)
+	}
+
+	result := &coretypes.ResultBlockResults{}
+	if err := tmjson.Unmarshal(res.Result, result); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal block result: %v", res.Result)
+	}
+
+	return result, nil
 }

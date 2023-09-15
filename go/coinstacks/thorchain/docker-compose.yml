@@ -1,12 +1,10 @@
-version: '3.4'
+version: '3.8'
+
 services:
   api:
-    image: go-unchained-local
+    image: unchained-local-go
     environment:
       - GOCACHE=/tmp
-    build:
-      context: ../../build
-      dockerfile: Dockerfile.local
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.thorchain-api.rule=Host(`api.thorchain.localhost`)'
@@ -16,3 +14,10 @@ services:
     volumes:
       - ../..:/app
       - $GOPATH/pkg/mod/cache:/go/pkg/mod/cache
+    networks:
+      - thorchain
+
+networks:
+  thorchain:
+    name: thorchain_default
+    external: true

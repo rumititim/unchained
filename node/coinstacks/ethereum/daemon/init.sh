@@ -2,22 +2,27 @@
 
 set -e
 
+apk add bash curl jq
+
 start_coin_bg() {
   geth \
     --$NETWORK \
     --authrpc.jwtsecret /jwt.hex \
     --syncmode full \
     --datadir /data \
-    --cache 4096 \
-    --txlookuplimit 0 \
     --http \
-    --http.addr=0.0.0.0 \
-    --http.port 8332 \
+    --http.addr 0.0.0.0 \
+    --http.port 8545 \
     --http.api eth,net,web3,debug,txpool,engine \
     --http.vhosts '*' \
     --http.corsdomain '*' \
     --ws \
-    --ws.port 8333 \
+    --ws.addr 0.0.0.0 \
+    --ws.port 8546 \
+    --ws.api eth,net,web3,debug,txpool,engine \
+    --ws.origins '*' \
+    --txlookuplimit 0 \
+    --cache 4096 \
     --ipcdisable \
     --nat none &
   PID="$!"

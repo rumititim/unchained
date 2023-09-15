@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    image: unchained-local-node
+    env_file: .env
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.gnosis-api.rule=Host(`api.gnosis.localhost`)'
+      - 'traefik.http.services.gnosis-api.loadbalancer.server.port=3000'
+    working_dir: /app/node/coinstacks/gnosis/api
+    command: yarn nodemon
+    volumes:
+      - ../../..:/app
+    networks:
+      - gnosis
+
+networks:
+  gnosis:
+    name: gnosis_default
+    external: true

@@ -1,22 +1,39 @@
 #!/bin/bash
 
-TOLERANCE=2
+DISABLE_READINESS_PROBE=/root/disable_readiness
 
-BLOCKHEIGHT_LOCAL=$(curl -s http://localhost:27147/status | jq '.result.sync_info.latest_block_height | tonumber')
-BLOCKHEIGHT_REMOTE_SOURCE_1=$(curl -s https://rpc.ninerealms.com/status | jq '.result.sync_info.latest_block_height | tonumber')
-BLOCKHEIGHT_REMOTE_SOURCE_2=$(curl -s https://rpc.thorchain.info/status | jq '.result.sync_info.latest_block_height | tonumber')
+if [[ -f "$DISABLE_READINESS_PROBE" ]]; then
+  echo "readiness probe disabled"
+  exit 0
+fi
 
-ARRAY=($BLOCKHEIGHT_REMOTE_SOURCE_1 $BLOCKHEIGHT_REMOTE_SOURCE_2)
-BLOCKHEIGHT_BEST=${ARRAY[0]}
-for n in "${ARRAY[@]}"; do
-  ((n > BLOCKHEIGHT_BEST)) && BLOCKHEIGHT_BEST=$n
-done
+source /tendermint.sh
 
-BLOCKHEIGHT_NOMINAL=$(( $BLOCKHEIGHT_LOCAL + $TOLERANCE ))
-if [[ $BLOCKHEIGHT_BEST -gt $BLOCKHEIGHT_NOMINAL ]]; then
-  echo "node is still syncing"
+BLOCK_HEIGHT_TOLERANCE=5
+
+SYNCING=$(curl -sf http://localhost:1317/syncing) || exit 1
+NET_INFO=$(curl -sf http://localhost:27147/net_info) || exit 1
+STATUS=$(curl -sf http://localhost:27147/status) || exit 1
+
+IS_SYNCING=$(echo $SYNCING | jq -r '.syncing')
+CATCHING_UP=$(echo $STATUS | jq -r '.result.sync_info.catching_up')
+NUM_PEERS=$(echo $NET_INFO | jq -r '.result.n_peers')
+
+if [[ $IS_SYNCING == false && $CATCHING_UP == false ]]; then
+  if (( $NUM_PEERS > 0 )); then
+    latest_block_height=$(echo $STATUS | jq -r '.result.sync_info.latest_block_height')
+    best_reference_block_height=$(get_best_reference_block_height https://rpc.ninerealms.com https://rpc.thorswap.net https://rpc.thorchain.liquify.com)
+
+    # if node is reporting synced, double check against reference nodes
+    reference_validation $latest_block_height $best_reference_block_height $BLOCK_HEIGHT_TOLERANCE
+
+    echo "daemon is synced with $NUM_PEERS peers"
+    exit 0
+  fi
+
+  echo "daemon is synced, but has no peers"
   exit 1
 fi
 
-echo "node is synced"
-exit 0
+echo "daemon is still syncing"
+exit 1

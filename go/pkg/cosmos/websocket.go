@@ -10,47 +10,26 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/pkg/errors"
 	"github.com/shapeshift/unchained/pkg/websocket"
-	tmjson "github.com/tendermint/tendermint/libs/json"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tendermintjson "github.com/tendermint/tendermint/libs/json"
 	coretypes "github.com/tendermint/tendermint/rpc/core/types"
 	tendermint "github.com/tendermint/tendermint/rpc/jsonrpc/client"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 	"github.com/tendermint/tendermint/types"
 )
 
 type TxHandlerFunc = func(tx types.EventDataTx, block *BlockResponse) (interface{}, []string, error)
-type UnmarshalResultEvent = func([]byte, *coretypes.ResultEvent) error
-
-type WebsocketHandler interface {
-	Start() error
-	Stop() error
-	Subscribe(ctx context.Context, query string) error
-	UnsubscribeAll(ctx context.Context) error
-}
+type EndBlockEventHandlerFunc = func(eventCache map[string]interface{}, blockHeader types.Header, endBlockEvents []abci.Event, eventIndex int) (interface{}, []string, error)
 
 type WSClient struct {
 	*websocket.Registry
 	blockService         *BlockService
-	client               WebsocketHandler
+	client               *tendermint.WSClient
 	encoding             *params.EncodingConfig
 	errChan              chan<- error
 	m                    sync.RWMutex
-	responsesCh          *chan rpctypes.RPCResponse // responsesCh is a pointer to the underlying websocket client responses channel to read from
 	txHandler            TxHandlerFunc
+	endBlockEventHandler EndBlockEventHandlerFunc
 	unhandledTxs         map[int][]types.EventDataTx
-	unmarshalResultEvent UnmarshalResultEvent
-}
-
-func NewBaseWebsocketClient(blockService *BlockService, client WebsocketHandler, encoding *params.EncodingConfig, unmarshal UnmarshalResultEvent, responsesCh *chan rpctypes.RPCResponse, errChan chan<- error) *WSClient {
-	return &WSClient{
-		Registry:             websocket.NewRegistry(),
-		blockService:         blockService,
-		client:               client,
-		encoding:             encoding,
-		errChan:              errChan,
-		responsesCh:          responsesCh,
-		unhandledTxs:         make(map[int][]types.EventDataTx),
-		unmarshalResultEvent: unmarshal,
-	}
 }
 
 func NewWebsocketClient(conf Config, blockService *BlockService, errChan chan<- error) (*WSClient, error) {
@@ -59,12 +38,7 @@ func NewWebsocketClient(conf Config, blockService *BlockService, errChan chan<- 
 		return nil, errors.Wrapf(err, "failed to parse WSURL: %s", conf.WSURL)
 	}
 
-	path := "/websocket"
-	if conf.APIKey != "" {
-		path = fmt.Sprintf("/apikey/%s/websocket", conf.APIKey)
-	}
-
-	client, err := tendermint.NewWS(wsURL.String(), path)
+	client, err := tendermint.NewWS(wsURL.String(), "/websocket")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create websocket client")
 	}
@@ -72,28 +46,19 @@ func NewWebsocketClient(conf Config, blockService *BlockService, errChan chan<- 
 	// use default dialer
 	client.Dialer = net.Dial
 
-	unmarshal := func(bz []byte, result *coretypes.ResultEvent) error {
-		if err := tmjson.Unmarshal(bz, result); err != nil {
-			return err
-		}
-
-		switch v := result.Data.(type) {
-		case types.EventDataNewBlockHeader:
-			result.Data = &BlockResponse{
-				Height:    int(v.Header.Height),
-				Hash:      v.Header.Hash().String(),
-				Timestamp: int(v.Header.Time.Unix()),
-			}
-		}
-
-		return nil
+	ws := &WSClient{
+		Registry:     websocket.NewRegistry(),
+		blockService: blockService,
+		client:       client,
+		encoding:     conf.Encoding,
+		errChan:      errChan,
+		unhandledTxs: make(map[int][]types.EventDataTx),
 	}
-
-	ws := NewBaseWebsocketClient(blockService, client, conf.Encoding, unmarshal, &client.ResponsesCh, errChan)
 
 	tendermint.MaxReconnectAttempts(10)(client)
 	tendermint.OnReconnect(func() {
 		logger.Info("OnReconnect triggered: resubscribing")
+		ws.unhandledTxs = make(map[int][]types.EventDataTx)
 		_ = client.Subscribe(context.Background(), types.EventQueryTx.String())
 		_ = client.Subscribe(context.Background(), types.EventQueryNewBlockHeader.String())
 	})(client)
@@ -132,12 +97,16 @@ func (ws *WSClient) TxHandler(fn TxHandlerFunc) {
 	ws.txHandler = fn
 }
 
+func (ws *WSClient) EndBlockEventHandler(fn EndBlockEventHandlerFunc) {
+	ws.endBlockEventHandler = fn
+}
+
 func (ws *WSClient) EncodingConfig() params.EncodingConfig {
 	return *ws.encoding
 }
 
 func (ws *WSClient) listen() {
-	for r := range *ws.responsesCh {
+	for r := range ws.client.ResponsesCh {
 		if r.Error != nil {
 			// resubscribe if subscription is cancelled by the server for reason: client is not pulling messages fast enough
 			// experimental rpc config available to help mitigate this issue: https://github.com/tendermint/tendermint/blob/main/config/config.go#L373
@@ -165,8 +134,8 @@ func (ws *WSClient) listen() {
 		}
 
 		result := &coretypes.ResultEvent{}
-		if err := ws.unmarshalResultEvent(r.Result, result); err != nil {
-			logger.Errorf("failed to unmarshal message result: %v\n", err)
+		if err := tendermintjson.Unmarshal(r.Result, result); err != nil {
+			logger.Errorf("failed to unmarshal tx message: %v", err)
 			continue
 		}
 
@@ -174,10 +143,10 @@ func (ws *WSClient) listen() {
 			switch result.Data.(type) {
 			case types.EventDataTx:
 				go ws.handleTx(result.Data.(types.EventDataTx))
-			case *BlockResponse:
-				go ws.handleNewBlockHeader(result.Data.(*BlockResponse))
+			case types.EventDataNewBlockHeader:
+				go ws.handleNewBlockHeader(result.Data.(types.EventDataNewBlockHeader))
 			default:
-				fmt.Printf("unsupported result type: %T\n", result.Data)
+				fmt.Printf("unsupported result type: %T", result.Data)
 			}
 		}
 	}
@@ -196,22 +165,47 @@ func (ws *WSClient) handleTx(tx types.EventDataTx) {
 		return
 	}
 
-	data, addrs, err := ws.txHandler(tx, block)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	if ws.txHandler != nil {
+		data, addrs, err := ws.txHandler(tx, block)
+		if err != nil {
+			logger.Error(err)
+			return
+		}
 
-	ws.Publish(addrs, data)
+		ws.Publish(addrs, data)
+	}
 }
 
-func (ws *WSClient) handleNewBlockHeader(block *BlockResponse) {
-	ws.blockService.WriteBlock(block, true)
-
-	// process any unhandled transactions
-	for _, tx := range ws.unhandledTxs[block.Height] {
-		go ws.handleTx(tx)
+func (ws *WSClient) handleNewBlockHeader(block types.EventDataNewBlockHeader) {
+	b := &BlockResponse{
+		Height:    int(block.Header.Height),
+		Hash:      block.Header.Hash().String(),
+		Timestamp: int(block.Header.Time.Unix()),
 	}
 
-	delete(ws.unhandledTxs, block.Height)
+	ws.blockService.WriteBlock(b, true)
+
+	if ws.endBlockEventHandler != nil {
+		go func(b types.EventDataNewBlockHeader) {
+			eventCache := make(map[string]interface{})
+
+			for i := range b.ResultEndBlock.Events {
+				data, addrs, err := ws.endBlockEventHandler(eventCache, b.Header, b.ResultEndBlock.Events, i)
+				if err != nil {
+					logger.Error(err)
+					return
+				}
+
+				if data != nil {
+					ws.Publish(addrs, data)
+				}
+			}
+		}(block)
+	}
+
+	// process any unhandled transactions
+	for _, tx := range ws.unhandledTxs[b.Height] {
+		go ws.handleTx(tx)
+	}
+	delete(ws.unhandledTxs, b.Height)
 }

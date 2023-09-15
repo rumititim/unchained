@@ -76,13 +76,19 @@ type Info struct {
 // swagger:model Message
 type Message struct {
 	Addresses []string `json:"-"`
-	Origin    string   `json:"origin,omitempty"`
-	From      string   `json:"from,omitempty"`
-	To        string   `json:"to,omitempty"`
+	// required: true
+	Index string `json:"index"`
+	// required: true
+	Origin string `json:"origin"`
+	// required: true
+	From string `json:"from"`
+	// required: true
+	To string `json:"to"`
 	// required: true
 	// example: /cosmos.bank.v1beta1.MsgSend
-	Type  string `json:"type"`
-	Value Value  `json:"value,omitempty"`
+	Type string `json:"type"`
+	// required: true
+	Value Value `json:"value"`
 }
 
 // Contains info about a staking redelegation
@@ -225,6 +231,8 @@ type ValidatorCommission struct {
 // Contains a list of validators
 // swagger:model Validators
 type Validators struct {
+	// swagger:allOf
+	api.Pagination
 	// required: true
 	Validators []Validator `json:"validators"`
 }

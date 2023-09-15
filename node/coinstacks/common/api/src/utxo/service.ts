@@ -1,9 +1,10 @@
 import axios from 'axios'
 import axiosRetry from 'axios-retry'
 import { ApiError as BlockbookApiError, Blockbook, Tx as BlockbookTx } from '@shapeshiftoss/blockbook'
-import { ApiError, BadRequestError, BaseAPI, Cursor, RPCRequest, RPCResponse, SendTxBody } from '../'
+import { AddressFormatter, ApiError, BadRequestError, BaseAPI, Cursor, RPCRequest, RPCResponse, SendTxBody } from '../'
 import { Account, Address, API, NetworkFee, NetworkFees, RawTx, Tx, TxHistory, Utxo } from './models'
 import { NodeBlock } from './types'
+import { validatePageSize } from '../utils'
 
 axiosRetry(axios, { retries: 5, retryDelay: axiosRetry.exponentialDelay })
 
@@ -23,6 +24,7 @@ export interface ServiceArgs {
   blockbook: Blockbook
   rpcUrl: string
   isXpub: (pubkey: string) => boolean
+  addressFormatter?: AddressFormatter
 }
 
 export class Service implements Omit<BaseAPI, 'getInfo'>, API {
@@ -30,11 +32,14 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
 
   private readonly blockbook: Blockbook
   private readonly rpcUrl: string
+  private formatAddress: AddressFormatter = (address: string) => address.toLowerCase()
 
   constructor(args: ServiceArgs) {
     this.blockbook = args.blockbook
     this.rpcUrl = args.rpcUrl
     this.isXpub = args.isXpub
+
+    if (args.addressFormatter) this.formatAddress = args.addressFormatter
   }
 
   async getAccount(pubkey: string): Promise<Account> {
@@ -44,7 +49,8 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
           return this.blockbook.getXpub(pubkey, undefined, undefined, undefined, undefined, 'tokenBalances', 'derived')
         }
 
-        return this.blockbook.getAddress(pubkey, undefined, undefined, undefined, undefined, 'basic')
+        const address = this.formatAddress(pubkey)
+        return this.blockbook.getAddress(address, undefined, undefined, undefined, undefined, 'basic')
       })()
 
       // list of all used addresses with additional derived addresses up to gap limit of 20, including any detected balances
@@ -83,7 +89,7 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
   }
 
   async getTxHistory(pubkey: string, cursor?: string, pageSize = 10): Promise<TxHistory> {
-    if (pageSize <= 0) throw new ApiError('Bad Request', 422, 'page size must be greater than 0')
+    validatePageSize(pageSize)
 
     try {
       const curCursor = ((): Cursor => {
@@ -102,7 +108,8 @@ export class Service implements Omit<BaseAPI, 'getInfo'>, API {
           return this.blockbook.getXpub(pubkey, curCursor.page, pageSize, undefined, undefined, 'txs')
         }
 
-        return this.blockbook.getAddress(pubkey, curCursor.page, pageSize, undefined, undefined, 'txs')
+        const address = this.formatAddress(pubkey)
+        return this.blockbook.getAddress(address, curCursor.page, pageSize, undefined, undefined, 'txs')
       })()
 
       curCursor.page++
