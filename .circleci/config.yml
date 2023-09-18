@@ -666,6 +666,37 @@ aliases:
     api-memory-limit: 250Mi
     stateful-service-replicas: 1
 
+  - &binance
+    assetName: binance
+    pulumi-stack: public-us-east-2
+    pulumi-dir: coinstacks/binance/pulumi
+    rpc-url: http://binance-svc.unchained.svc.cluster.local:26657
+    api-autoscaling: true
+    api-replicas: 2
+    api-max-replicas: 6
+    api-cpu-limit: 500m
+    api-cpu-request: 250m
+    api-cpu-threshold: 75
+    api-memory-limit: 500Mi
+    api-memory-request: 250Mi
+    stateful-service-replicas: 2
+    service-name-1: daemon
+    service-image-1: shapeshiftdao/bnb-beacon-chain:v0.10.16
+    service-cpu-limit-1: "4"
+    service-cpu-request-1: "2"
+    service-memory-limit-1: 24Gi
+    service-storage-size-1: 1000Gi
+
+  - &binance-dev
+    <<: *binance
+    environment: dev
+    pulumi-stack: public-dev-us-east-2
+    rpc-url: http://binance-svc.unchained-dev.svc.cluster.local:26657
+    api-replicas: 1
+    api-max-replicas: 2
+    api-memory-limit: 250Mi
+    stateful-service-replicas: 1
+
 commands:
   precheck:
     description: install dependencies
@@ -1182,6 +1213,15 @@ workflows:
           <<: *thorchain-dev
           <<: *only-develop
 
+      - deploy-coinstack-go:
+          name: deploy binance develop
+          organization: TAXISTAKE
+          pulumi-command: up -f --yes
+          requires:
+            - deploy dependencies
+          <<: *binance-dev
+          <<: *only-develop
+
       - deploy-monitoring-pulumi:
           name: deploy monitoring pulumi
           organization: TAXISTAKE
@@ -1520,4 +1560,30 @@ workflows:
           requires:
             - approve thorchain coinstack
           <<: *thorchain
+          <<: *only-main
+
+      ####### BINANCE
+      - deploy-coinstack-go:
+          name: preview binance
+          organization: TAXISTAKE
+          pulumi-command: preview
+          requires:
+            - validate dependencies
+          <<: *binance
+          <<: *only-main
+
+      - approve-coinstack:
+          name: approve binance coinstack
+          type: approval
+          requires:
+            - preview binance
+          <<: *only-main
+
+      - deploy-coinstack-go:
+          name: deploy binance
+          organization: TAXISTAKE
+          pulumi-command: up -f --yes
+          requires:
+            - approve binance coinstack
+          <<: *binance
           <<: *only-main
