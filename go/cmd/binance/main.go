@@ -6,13 +6,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	commontypes "github.com/shapeshift/bnb-chain-go-sdk/common/types"
-	txtypes "github.com/shapeshift/bnb-chain-go-sdk/types/tx"
 	"github.com/shapeshift/unchained/coinstacks/binance"
 	"github.com/shapeshift/unchained/coinstacks/binance/api"
 	"github.com/shapeshift/unchained/internal/config"
 	"github.com/shapeshift/unchained/internal/log"
 	"github.com/shapeshift/unchained/pkg/cosmos"
+	"github.com/shapeshift/unchained/pkg/metrics"
 )
 
 var (
@@ -24,7 +23,6 @@ var (
 
 // Config for running application
 type Config struct {
-	BCURL  string `mapstructure:"BC_URL"`
 	LCDURL string `mapstructure:"LCD_URL"`
 	RPCURL string `mapstructure:"RPC_URL"`
 	WSURL  string `mapstructure:"WS_URL"`
@@ -39,7 +37,7 @@ func main() {
 
 	conf := &Config{}
 	if *envPath == "" {
-		if err := config.LoadFromEnv(conf, "BC_URL", "LCD_URL", "RPC_URL", "WS_URL"); err != nil {
+		if err := config.LoadFromEnv(conf, "LCD_URL", "RPC_URL", "WS_URL"); err != nil {
 			logger.Panicf("failed to load config from env: %+v", err)
 		}
 	} else {
@@ -48,21 +46,20 @@ func main() {
 		}
 	}
 
-	encoding := cosmos.NewEncoding(commontypes.RegisterWire, commontypes.RegisterEventDatas, txtypes.RegisterCodec)
+	encoding := cosmos.NewEncoding()
 
-	cfg := binance.Config{
-		Config: cosmos.Config{
-			Bech32AddrPrefix:  "bnb",
-			Bech32PkPrefix:    "bnbp",
-			Bech32ValPrefix:   "bva",
-			Bech32PkValPrefix: "bvap",
-			Encoding:          encoding,
-			LCDURL:            conf.LCDURL,
-			RPCURL:            conf.RPCURL,
-			WSURL:             conf.WSURL,
-		},
-		BCURL: conf.BCURL,
+	cfg := cosmos.Config{
+		Bech32AddrPrefix:  "bnb",
+		Bech32PkPrefix:    "bnbp",
+		Bech32ValPrefix:   "bva",
+		Bech32PkValPrefix: "bvap",
+		Encoding:          encoding,
+		LCDURL:            conf.LCDURL,
+		RPCURL:            conf.RPCURL,
+		WSURL:             conf.WSURL,
 	}
+
+	prometheus := metrics.NewPrometheus("binance")
 
 	httpClient, err := binance.NewHTTPClient(cfg)
 	if err != nil {
@@ -74,12 +71,12 @@ func main() {
 		logger.Panicf("failed to create new block service: %+v", err)
 	}
 
-	wsClient, err := binance.NewWebsocketClient(cfg, blockService, errChan)
+	wsClient, err := cosmos.NewWebsocketClient(cfg, blockService, errChan)
 	if err != nil {
 		logger.Panicf("failed to create new websocket client: %+v", err)
 	}
 
-	api := api.New(httpClient, wsClient, blockService, *swaggerPath)
+	api := api.New(httpClient, wsClient, blockService, *swaggerPath, prometheus)
 	defer api.Shutdown()
 
 	go api.Serve(errChan)

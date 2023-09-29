@@ -23,13 +23,16 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 	"github.com/shapeshift/unchained/coinstacks/binance"
+	"github.com/shapeshift/unchained/internal/log"
 	"github.com/shapeshift/unchained/pkg/api"
 	"github.com/shapeshift/unchained/pkg/cosmos"
+	"github.com/shapeshift/unchained/pkg/metrics"
 	"github.com/shapeshift/unchained/pkg/websocket"
 )
 
 const (
 	PORT                     = 3000
+	PPROF_PORT               = 3001
 	GRACEFUL_SHUTDOWN        = 15 * time.Second
 	WRITE_TIMEOUT            = 15 * time.Second
 	READ_TIMEOUT             = 15 * time.Second
@@ -37,21 +40,27 @@ const (
 	MAX_PAGE_SIZE_TX_HISTORY = 100
 )
 
+var logger = log.WithoutFields()
+
 type API struct {
 	*cosmos.API
 	handler *Handler
 }
 
-func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService *cosmos.BlockService, swaggerPath string) *API {
+func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService *cosmos.BlockService, swaggerPath string, prometheus *metrics.Prometheus) *API {
 	r := mux.NewRouter()
 
 	handler := &Handler{
-		HTTPClient:   httpClient,
-		WSClient:     wsClient,
-		BlockService: blockService,
+		Handler: &cosmos.Handler{
+			HTTPClient:   httpClient.HTTPClient,
+			WSClient:     wsClient,
+			BlockService: blockService,
+			Denom:        "bnb",
+		},
+		HTTPClient: httpClient,
 	}
 
-	manager := websocket.NewManager()
+	manager := websocket.NewManager(prometheus)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", PORT),
@@ -68,9 +77,19 @@ func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService
 
 	// compile check to ensure Handler implements necessary interfaces
 	var _ api.BaseAPI = handler
+	var _ cosmos.CoinSpecificHandler = handler
 
-	r.Use(api.Scheme)
-	r.Use(api.Logger)
+	// runtime check to ensure Handler implements CoinSpecificHandler
+	if err := handler.ValidateCoinSpecific(handler); err != nil {
+		logger.Panicf("%+v", err)
+	}
+
+	// pprof server
+	go func() {
+		logger.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", PPROF_PORT), http.DefaultServeMux))
+	}()
+
+	r.Use(api.Scheme, api.Logger(prometheus))
 
 	r.HandleFunc("/", a.Root).Methods("GET")
 

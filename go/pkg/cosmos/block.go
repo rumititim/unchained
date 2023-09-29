@@ -11,8 +11,30 @@ import (
 	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
+type Block interface {
+	GetBlockResponse() *BlockResponse
+}
+
+type ResultBlock struct {
+	*coretypes.ResultBlock
+}
+
+type BlockResponse struct {
+	Height    int
+	Hash      string
+	Timestamp int
+}
+
+func (r *ResultBlock) GetBlockResponse() *BlockResponse {
+	return &BlockResponse{
+		Height:    int(r.Block.Height),
+		Hash:      r.Block.Hash().String(),
+		Timestamp: int(r.Block.Time.Unix()),
+	}
+}
+
 type BlockFetcher interface {
-	GetBlock(height *int) (*coretypes.ResultBlock, error)
+	GetBlock(height *int) (Block, error)
 }
 
 type BlockService struct {
@@ -28,18 +50,12 @@ func NewBlockService(httpClient BlockFetcher) (*BlockService, error) {
 		httpClient: httpClient,
 	}
 
-	result, err := s.httpClient.GetBlock(nil)
+	block, err := s.httpClient.GetBlock(nil)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	block := &BlockResponse{
-		Height:    int(result.Block.Height),
-		Hash:      result.Block.Hash().String(),
-		Timestamp: int(result.Block.Time.Unix()),
-	}
-
-	s.WriteBlock(block, true)
+	s.WriteBlock(block.GetBlockResponse(), true)
 
 	return s, nil
 }
@@ -58,23 +74,17 @@ func (s *BlockService) GetBlock(height int) (*BlockResponse, error) {
 		return block, nil
 	}
 
-	result, err := s.httpClient.GetBlock(&height)
+	block, err := s.httpClient.GetBlock(&height)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	block := &BlockResponse{
-		Height:    int(result.Block.Height),
-		Hash:      result.Block.Hash().String(),
-		Timestamp: int(result.Block.Time.Unix()),
-	}
+	s.WriteBlock(block.GetBlockResponse(), false)
 
-	s.WriteBlock(block, false)
-
-	return block, nil
+	return block.GetBlockResponse(), nil
 }
 
-func (c *HTTPClient) GetBlock(height *int) (*coretypes.ResultBlock, error) {
+func (c *HTTPClient) GetBlock(height *int) (Block, error) {
 	res := &rpctypes.RPCResponse{}
 
 	hs := ""
@@ -96,7 +106,7 @@ func (c *HTTPClient) GetBlock(height *int) (*coretypes.ResultBlock, error) {
 		return nil, errors.Errorf("failed to unmarshal block result: %v: %s", res.Result, res.Error.Error())
 	}
 
-	return result, nil
+	return &ResultBlock{ResultBlock: result}, nil
 }
 
 func (c *HTTPClient) BlockSearch(query string, page int, pageSize int) (*coretypes.ResultBlockSearch, error) {

@@ -9,6 +9,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+type ValidatorsResponse struct {
+	Validators []Validator
+	Pagination PageResponse
+}
+
 func (c *HTTPClient) GetValidators(apr *big.Float, cursor string, pageSize int) (*ValidatorsResponse, error) {
 	var res QueryValidatorsResponse
 

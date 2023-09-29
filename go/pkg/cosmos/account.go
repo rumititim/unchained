@@ -14,6 +14,17 @@ import (
 	"github.com/pkg/errors"
 )
 
+type AccountResponse struct {
+	Address       string
+	AccountNumber int
+	Sequence      int
+}
+
+type BalanceResponse struct {
+	Amount string  `json:"amount"`
+	Assets []Value `json:"assets"`
+}
+
 func (c *HTTPClient) GetAccount(address string) (*AccountResponse, error) {
 	var res struct {
 		Account struct {

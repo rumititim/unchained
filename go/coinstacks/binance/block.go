@@ -2,13 +2,35 @@ package binance
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/shapeshift/unchained/pkg/cosmos"
+	"github.com/tendermint/tendermint/libs/bytes"
 	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
-func (c *HTTPClient) GetBlock(height *int) (*cosmos.BlockResponse, error) {
+type ResultBlock struct {
+	BlockMeta struct {
+		BlockId struct {
+			Hash bytes.HexBytes `json:"hash"`
+		} `json:"block_id"`
+		Header struct {
+			Height int64     `json:"height"`
+			Time   time.Time `json:"time"`
+		} `json:"header"`
+	} `json:"block_meta"`
+}
+
+func (r *ResultBlock) GetBlockResponse() *cosmos.BlockResponse {
+	return &cosmos.BlockResponse{
+		Height:    int(r.BlockMeta.Header.Height),
+		Hash:      r.BlockMeta.BlockId.Hash.String(),
+		Timestamp: int(r.BlockMeta.Header.Time.Unix()),
+	}
+}
+
+func (c *HTTPClient) GetBlock(height *int) (cosmos.Block, error) {
 	var res *rpctypes.RPCResponse
 
 	hs := ""
@@ -25,16 +47,10 @@ func (c *HTTPClient) GetBlock(height *int) (*cosmos.BlockResponse, error) {
 		return nil, errors.Errorf("failed to get block: %s: %s", hs, res.Error.Error())
 	}
 
-	block := &ResultBlock{}
-	if err := c.GetEncoding().Amino.UnmarshalJSON(res.Result, block); err != nil {
+	result := &ResultBlock{}
+	if err := c.GetEncoding().Amino.UnmarshalJSON(res.Result, result); err != nil {
 		return nil, errors.Wrapf(err, "failed to decode block: %v", res.Result)
 	}
 
-	b := &cosmos.BlockResponse{
-		Height:    int(block.Block.Height),
-		Hash:      block.BlockMeta.BlockID.Hash.String(),
-		Timestamp: int(block.Block.Time.Unix()),
-	}
-
-	return b, nil
+	return result, nil
 }

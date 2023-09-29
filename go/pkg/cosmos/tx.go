@@ -16,14 +16,35 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	ibcchanneltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v4/modules/apps/transfer/types"
+	ibcchanneltypes "github.com/cosmos/ibc-go/v4/modules/core/04-channel/types"
 	"github.com/pkg/errors"
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	coretypes "github.com/tendermint/tendermint/rpc/core/types"
 	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
+
+type ResultTx struct {
+	*coretypes.ResultTx
+	formatTx func(tx *coretypes.ResultTx) (*Tx, error)
+}
+
+func (r *ResultTx) GetHeight() int64 {
+	return r.Height
+}
+
+func (r *ResultTx) GetIndex() int {
+	return int(r.Index)
+}
+
+func (r *ResultTx) GetTxID() string {
+	return r.Hash.String()
+}
+
+func (r *ResultTx) FormatTx() (*Tx, error) {
+	return r.formatTx(r.ResultTx)
+}
 
 func (c *HTTPClient) GetTxHistory(address string, cursor string, pageSize int, sources map[string]*TxState) (*TxHistoryResponse, error) {
 	history := &History{
@@ -242,21 +263,23 @@ func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
 		case *distributiontypes.MsgWithdrawDelegatorReward:
 			amount := events[strconv.Itoa(i)]["withdraw_rewards"]["amount"]
 
-			coin, err := sdk.ParseCoinNormalized(amount)
+			coins, err := sdk.ParseCoinsNormalized(amount)
 			if err != nil && amount != "" {
 				logger.Error(err)
 			}
 
-			message := Message{
-				Addresses: []string{v.DelegatorAddress, v.ValidatorAddress},
-				Index:     strconv.Itoa(i),
-				Origin:    v.DelegatorAddress,
-				From:      v.ValidatorAddress,
-				To:        v.DelegatorAddress,
-				Type:      v.Type(),
-				Value:     CoinToValue(&coin),
+			for _, coin := range coins {
+				message := Message{
+					Addresses: []string{v.DelegatorAddress, v.ValidatorAddress},
+					Index:     strconv.Itoa(i),
+					Origin:    v.DelegatorAddress,
+					From:      v.ValidatorAddress,
+					To:        v.DelegatorAddress,
+					Type:      v.Type(),
+					Value:     CoinToValue(&coin),
+				}
+				messages = append(messages, message)
 			}
-			messages = append(messages, message)
 		case *ibctransfertypes.MsgTransfer:
 			message := Message{
 				Addresses: []string{v.Sender, v.Receiver},

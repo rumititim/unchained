@@ -19,13 +19,15 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	ibccoretypes "github.com/cosmos/ibc-go/v3/modules/core/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/v4/modules/apps/transfer/types"
+	ibccoretypes "github.com/cosmos/ibc-go/v4/modules/core/types"
+	ibclightclientstypes "github.com/cosmos/ibc-go/v4/modules/light-clients/07-tendermint/types"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"github.com/shapeshift/unchained/internal/log"
 	"github.com/tendermint/go-amino"
-	liquiditytypes "github.com/tendermint/liquidity/x/liquidity/types"
+
+	//liquiditytypes "github.com/tendermint/liquidity/x/liquidity/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -166,7 +168,8 @@ func NewEncoding(registerFns ...interface{}) *params.EncodingConfig {
 	govtypes.RegisterInterfaces(registry)
 	ibccoretypes.RegisterInterfaces(registry)
 	ibctransfertypes.RegisterInterfaces(registry)
-	liquiditytypes.RegisterInterfaces(registry)
+	ibclightclientstypes.RegisterInterfaces(registry)
+	//liquiditytypes.RegisterInterfaces(registry)
 	stakingtypes.RegisterInterfaces(registry)
 	stdtypes.RegisterInterfaces(registry)
 
@@ -183,12 +186,12 @@ func NewEncoding(registerFns ...interface{}) *params.EncodingConfig {
 		}
 	}
 
-	marshaler := codec.NewProtoCodec(registry)
+	codec := codec.NewProtoCodec(registry)
 
 	return &params.EncodingConfig{
 		InterfaceRegistry: registry,
-		Marshaler:         marshaler,
-		TxConfig:          tx.NewTxConfig(marshaler, tx.DefaultSignModes),
+		Marshaler:         codec,
+		TxConfig:          tx.NewTxConfig(codec, tx.DefaultSignModes),
 		Amino:             cdc,
 	}
 }

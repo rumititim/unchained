@@ -8,6 +8,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type HistoryTx interface {
+	GetHeight() int64
+	GetIndex() int
+	GetTxID() string
+	FormatTx() (*Tx, error)
+}
+
+type TxHistoryResponse struct {
+	Cursor string
+	Txs    []Tx
+}
+
 type RequestFn = func(string, int, int) ([]HistoryTx, error)
 
 // TxState stores state for a specific query source

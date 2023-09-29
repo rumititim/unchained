@@ -16,3 +16,10 @@ services:
     volumes:
       - ../..:/app
       - $GOPATH/pkg/mod/cache:/go/pkg/mod/cache
+    networks:
+      - binance
+
+networks:
+  binance:
+    name: binance_default
+    external: true
