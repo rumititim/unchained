@@ -2,8 +2,8 @@ package api
 
 import (
 	"fmt"
+	"strconv"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	ws "github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -11,6 +11,7 @@ import (
 	"github.com/shapeshift/unchained/pkg/api"
 	"github.com/shapeshift/unchained/pkg/cosmos"
 	"github.com/shapeshift/unchained/pkg/websocket"
+	coretypes "github.com/tendermint/tendermint/rpc/core/types"
 )
 
 //// custom amino unmarshaler to decode and convert to correct types
@@ -199,12 +200,12 @@ func (h *Handler) GetTx(txid string) (api.Tx, error) {
 
 	fmt.Printf("%+v\n", tx)
 
-	//t, err := h.formatTx(tx)
-	//if err != nil {
-	//	return nil, errors.Wrapf(err, "failed to format transaction: %s", tx.Hash.String())
-	//}
+	t, err := h.formatTx(tx)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to format transaction: %s", tx.Hash.String())
+	}
 
-	return nil, nil
+	return t, nil
 }
 
 func (h *Handler) SendTx(hex string) (string, error) {
@@ -216,7 +217,7 @@ func (h Handler) EstimateGas(rawTx string) (string, error) {
 	return "0", nil
 }
 
-func (h *Handler) ParseMessages(msgs []sdk.Msg, events cosmos.EventsByMsgIndex) []cosmos.Message {
+func (h *Handler) ParseMessages(msgs interface{}, events cosmos.EventsByMsgIndex) []cosmos.Message {
 	return cosmos.ParseMessages(msgs, events)
 }
 
@@ -224,33 +225,33 @@ func (h *Handler) ParseFee(tx signing.Tx, txid string, denom string) cosmos.Valu
 	return cosmos.Fee(tx, txid, denom)
 }
 
-//func (h *Handler) formatTx(tx *coretypes.ResultTx) (*Tx, error) {
-//	pTx, err := rpc.ParseTx(h.HTTPClient.GetEncoding().Amino.Amino, tx.Tx)
-//	if err != nil {
-//		return nil, errors.Wrapf(err, "failed to parse tx: %v", tx.Tx)
-//	}
-//
-//	block, err := h.BlockService.GetBlock(int(tx.Height))
-//	if err != nil {
-//		return nil, errors.Wrapf(err, "failed to get block: %d", tx.Height)
-//	}
-//
-//	t := &Tx{
-//		BaseTx: api.BaseTx{
-//			TxID:        tx.Hash.String(),
-//			BlockHash:   &block.Hash,
-//			BlockHeight: block.Height,
-//			Timestamp:   block.Timestamp,
-//		},
-//		// TODO: reference fees from /api/v1/fees
-//		Fee:           cosmos.Value{Amount: "0", Denom: "BNB"},
-//		Confirmations: h.BlockService.Latest.Height - int(tx.Height) + 1,
-//		GasUsed:       strconv.Itoa(int(tx.TxResult.GasUsed)),
-//		GasWanted:     strconv.Itoa(int(tx.TxResult.GasWanted)),
-//		Index:         int(tx.Index),
-//		Memo:          pTx.(txtypes.StdTx).Memo,
-//		Messages:      binance.ParseMessages(pTx.GetMsgs()),
-//	}
-//
-//	return t, nil
-//}
+func (h *Handler) formatTx(tx *coretypes.ResultTx) (*cosmos.Tx, error) {
+	pTx, err := binance.ParseTx(h.HTTPClient.GetEncoding().Amino.Amino, tx.Tx)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to parse tx: %v", tx.Tx)
+	}
+
+	block, err := h.BlockService.GetBlock(int(tx.Height))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get block: %d", tx.Height)
+	}
+
+	t := &cosmos.Tx{
+		BaseTx: api.BaseTx{
+			TxID:        tx.Hash.String(),
+			BlockHash:   &block.Hash,
+			BlockHeight: block.Height,
+			Timestamp:   block.Timestamp,
+		},
+		// TODO: reference fees from /api/v1/fees
+		Fee:           cosmos.Value{Amount: "0", Denom: "BNB"},
+		Confirmations: h.BlockService.Latest.Height - int(tx.Height) + 1,
+		GasUsed:       strconv.Itoa(int(tx.TxResult.GasUsed)),
+		GasWanted:     strconv.Itoa(int(tx.TxResult.GasWanted)),
+		Index:         int(tx.Index),
+		//Memo:          pTx.().Memo,
+		Messages: h.ParseMessages(pTx.GetMsgs(), nil),
+	}
+
+	return t, nil
+}

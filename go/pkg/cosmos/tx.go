@@ -207,14 +207,14 @@ func ParseEvents(log string) EventsByMsgIndex {
 	return events
 }
 
-func ParseMessages(msgs []sdk.Msg, events EventsByMsgIndex) []Message {
+func ParseMessages(msgs interface{}, events EventsByMsgIndex) []Message {
 	messages := []Message{}
 
 	if _, ok := events["0"]["error"]; ok {
 		return messages
 	}
 
-	for i, msg := range msgs {
+	for i, msg := range msgs.([]interface{}) {
 		switch v := msg.(type) {
 		case *banktypes.MsgSend:
 			message := Message{

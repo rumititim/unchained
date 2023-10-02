@@ -80,9 +80,9 @@ func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService
 	var _ cosmos.CoinSpecificHandler = handler
 
 	// runtime check to ensure Handler implements CoinSpecificHandler
-	if err := handler.ValidateCoinSpecific(handler); err != nil {
-		logger.Panicf("%+v", err)
-	}
+	//if err := handler.ValidateCoinSpecific(handler); err != nil {
+	//	logger.Panicf("%+v", err)
+	//}
 
 	// pprof server
 	go func() {

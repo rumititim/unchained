@@ -46,7 +46,7 @@ func main() {
 		}
 	}
 
-	encoding := cosmos.NewEncoding()
+	encoding := cosmos.NewEncoding(binance.RegisterCodec)
 
 	cfg := cosmos.Config{
 		Bech32AddrPrefix:  "bnb",

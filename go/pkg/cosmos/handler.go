@@ -34,7 +34,7 @@ type RouteHandler interface {
 }
 
 type CoinSpecificHandler interface {
-	ParseMessages([]sdk.Msg, EventsByMsgIndex) []Message
+	ParseMessages(interface{}, EventsByMsgIndex) []Message
 	ParseFee(tx signing.Tx, txid string, denom string) Value
 }
 
