@@ -202,7 +202,7 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
-    service-image-1: ethereum/client-go:v1.13.0
+    service-image-1: ethereum/client-go:v1.13.2
     service-cpu-limit-1: "2"
     service-cpu-request-1: "1"
     service-memory-limit-1: 32Gi
@@ -254,7 +254,7 @@ aliases:
     service-cpu-limit-1: "2"
     service-cpu-request-1: "1"
     service-memory-limit-1: 32Gi
-    service-storage-size-1: 3500Gi
+    service-storage-size-1: 4000Gi
 
   - &cosmos-dev
     <<: *cosmos
@@ -286,10 +286,10 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
-    service-image-1: avaplatform/avalanchego:v1.10.9
+    service-image-1: avaplatform/avalanchego:v1.10.11
     service-cpu-limit-1: "2"
     service-cpu-request-1: "1"
-    service-memory-limit-1: 12Gi
+    service-memory-limit-1: 8Gi
     service-storage-size-1: 500Gi
     service-name-2: indexer
     service-image-2: shapeshiftdao/unchained-blockbook:95ee9b5
@@ -336,7 +336,7 @@ aliases:
     service-image-2: shapeshiftdao/unchained-blockbook:95ee9b5
     service-cpu-limit-2: "2"
     service-cpu-request-2: "1"
-    service-memory-limit-2: 16Gi
+    service-memory-limit-2: 12Gi
     service-storage-size-2: 250Gi
 
   - &dogecoin-dev
@@ -450,11 +450,11 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
-    service-image-1: registry.gitlab.com/thorchain/thornode:mainnet-1.120.2
+    service-image-1: registry.gitlab.com/thorchain/thornode:mainnet-1.121.0
     service-cpu-limit-1: "2"
     service-cpu-request-1: "1"
     service-memory-limit-1: 12Gi
-    service-storage-size-1: 2500Gi
+    service-storage-size-1: 3000Gi
     service-name-2: timescaledb
     service-image-2: timescale/timescaledb:2.2.0-pg13
     service-cpu-request-2: "1"
@@ -462,7 +462,7 @@ aliases:
     service-memory-limit-2: 8Gi
     service-storage-size-2: 500Gi
     service-name-3: indexer
-    service-image-3: registry.gitlab.com/thorchain/midgard:2.16.1
+    service-image-3: registry.gitlab.com/thorchain/midgard:2.17.1
     service-cpu-limit-3: 500m
     service-cpu-request-3: 250m
     service-memory-limit-3: 1Gi
@@ -587,14 +587,14 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
-    service-image-1: 0xpolygon/bor:0.5.0
+    service-image-1: 0xpolygon/bor:1.0.4
     service-cpu-limit-1: "8"
     service-cpu-request-1: "4"
     service-memory-request-1: 32Gi
     service-memory-limit-1: 48Gi
     service-storage-size-1: 4000Gi
     service-name-2: heimdall
-    service-image-2: 0xpolygon/heimdall:0.3.5
+    service-image-2: 0xpolygon/heimdall:1.0.1
     service-cpu-limit-2: "2"
     service-cpu-request-2: "1"
     service-memory-limit-2: 2Gi
@@ -636,13 +636,13 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
-    service-image-1: nethermind/nethermind:1.20.3
+    service-image-1: nethermind/nethermind:1.21.0
     service-cpu-limit-1: "2"
     service-cpu-request-1: "1"
     service-memory-limit-1: 6Gi
     service-storage-size-1: 1000Gi
     service-name-2: daemon-beacon
-    service-image-2: sigp/lighthouse:v4.4.1
+    service-image-2: sigp/lighthouse:v4.5.0
     service-cpu-limit-2: "2"
     service-cpu-request-2: "1"
     service-memory-limit-2: 4Gi
@@ -651,7 +651,7 @@ aliases:
     service-image-3: shapeshiftdao/unchained-blockbook:gnosis-f0ab749
     service-cpu-limit-3: "2"
     service-cpu-request-3: "1"
-    service-memory-limit-3: 24Gi
+    service-memory-limit-3: 16Gi
     service-storage-size-3: 500Gi
 
   - &gnosis-dev
@@ -666,11 +666,13 @@ aliases:
     api-memory-limit: 250Mi
     stateful-service-replicas: 1
 
-  - &binance
-    assetName: binance
+  - &arbitrum
+    assetName: arbitrum
     pulumi-stack: public-us-east-2
-    pulumi-dir: coinstacks/binance/pulumi
-    rpc-url: http://binance-svc.unchained.svc.cluster.local:26657
+    pulumi-dir: coinstacks/arbitrum/pulumi
+    rpc-url: http://arbitrum-svc.unchained.svc.cluster.local:8547
+    indexer-url: http://arbitrum-svc.unchained.svc.cluster.local:8001
+    indexer-ws-url: ws://arbitrum-svc.unchained.svc.cluster.local:8001/websocket
     api-autoscaling: true
     api-replicas: 2
     api-max-replicas: 6
@@ -681,6 +683,35 @@ aliases:
     api-memory-request: 250Mi
     stateful-service-replicas: 2
     service-name-1: daemon
+    service-image-1: offchainlabs/nitro-node:v2.1.1-e9d8842
+    service-cpu-limit-1: "2"
+    service-cpu-request-1: "1"
+    service-memory-limit-1: 24Gi
+    service-storage-size-1: 1000Gi
+    service-name-2: indexer
+    service-image-2: shapeshiftdao/unchained-blockbook:arbitrum-e21ed51
+    service-cpu-limit-2: "2"
+    service-cpu-request-2: "1"
+    service-memory-limit-2: 16Gi
+    service-storage-size-2: 500Gi
+
+  - &arbitrum-dev
+    <<: *arbitrum
+    environment: dev
+    pulumi-stack: public-dev-us-east-2
+    rpc-url: http://arbitrum-svc.unchained-dev.svc.cluster.local:8547
+    indexer-url: http://arbitrum-svc.unchained-dev.svc.cluster.local:8001
+    indexer-ws-url: ws://arbitrum-svc.unchained-dev.svc.cluster.local:8001/websocket
+    api-replicas: 1
+    api-max-replicas: 2
+    api-memory-limit: 250Mi
+    stateful-service-replicas: 1
+
+  - &binance
+    assetName: binance
+    pulumi-stack: public-us-east-2
+    pulumi-dir: coinstacks/binance/pulumi
+    rpc-url: http://binance-svc.unchained.svc.cluster.local:26657
     service-image-1: shapeshiftdao/bnb-beacon-chain:v0.10.16
     service-cpu-limit-1: "4"
     service-cpu-request-1: "2"
@@ -692,10 +723,6 @@ aliases:
     environment: dev
     pulumi-stack: public-dev-us-east-2
     rpc-url: http://binance-svc.unchained-dev.svc.cluster.local:26657
-    api-replicas: 1
-    api-max-replicas: 2
-    api-memory-limit: 250Mi
-    stateful-service-replicas: 1
 
 commands:
   precheck:
@@ -1195,6 +1222,16 @@ workflows:
           <<: *gnosis-dev
           <<: *only-develop
 
+      - deploy-coinstack-node:
+          name: deploy arbitrum develop
+          organization: TAXISTAKE
+          pulumi-command: up -f --yes
+          etherscan-env-var: ETHERSCAN_API_KEY_ARBITRUM
+          requires:
+            - deploy dependencies
+          <<: *arbitrum-dev
+          <<: *only-develop
+
       - deploy-coinstack-go:
           name: deploy cosmos develop
           organization: TAXISTAKE
@@ -1508,6 +1545,32 @@ workflows:
           requires:
             - approve gnosis coinstack
           <<: *gnosis
+          <<: *only-main
+
+      ####### ARBITRUM
+      - deploy-coinstack-node:
+          name: preview arbitrum
+          organization: TAXISTAKE
+          pulumi-command: preview
+          requires:
+            - validate dependencies
+          <<: *arbitrum
+          <<: *only-main
+
+      - approve-coinstack:
+          name: approve arbitrum coinstack
+          type: approval
+          requires:
+            - preview arbitrum
+          <<: *only-main
+
+      - deploy-coinstack-node:
+          name: deploy arbitrum
+          organization: TAXISTAKE
+          pulumi-command: up -f --yes
+          requires:
+            - approve arbitrum coinstack
+          <<: *arbitrum
           <<: *only-main
 
       ####### COSMOS
