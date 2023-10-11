@@ -23,11 +23,18 @@ start() {
   bnbchaind start \
     --moniker unchained \
     --rpc.laddr tcp://0.0.0.0:26657 &
-  PID="$!"
+  DAEMON_PID="$!"
+
+  bnbcli api-server \
+    --chain-id Binance-Chain-Tigris \
+    --laddr tcp://0.0.0.0:1317 &
+  API_SERVER_PID="$!"
 }
 
 stop() {
-  echo "Catching signal and sending to PID: $PID" && kill $PID
+  echo "Catching signal and sending to PID: $API_SERVER_PID" && kill $API_SERVER_PID
+  while $(kill -0 $PID 2>/dev/null); do sleep 1; done
+  echo "Catching signal and sending to PID: $DAEMON_PID" && kill $DAEMON_PID
   while $(kill -0 $PID 2>/dev/null); do sleep 1; done
 }
 

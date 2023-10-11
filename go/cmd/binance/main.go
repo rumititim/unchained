@@ -6,6 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	commontypes "github.com/shapeshift/bnb-chain-go-sdk/common/types"
+	txtypes "github.com/shapeshift/bnb-chain-go-sdk/types/tx"
 	"github.com/shapeshift/unchained/coinstacks/binance"
 	"github.com/shapeshift/unchained/coinstacks/binance/api"
 	"github.com/shapeshift/unchained/internal/config"
@@ -46,7 +48,7 @@ func main() {
 		}
 	}
 
-	encoding := cosmos.NewEncoding(binance.RegisterCodec)
+	encoding := cosmos.NewEncoding(commontypes.RegisterWire, commontypes.RegisterEventDatas, txtypes.RegisterCodec)
 
 	cfg := cosmos.Config{
 		Bech32AddrPrefix:  "bnb",
@@ -71,7 +73,7 @@ func main() {
 		logger.Panicf("failed to create new block service: %+v", err)
 	}
 
-	wsClient, err := cosmos.NewWebsocketClient(cfg, blockService, errChan)
+	wsClient, err := binance.NewWebsocketClient(cfg, blockService, errChan)
 	if err != nil {
 		logger.Panicf("failed to create new websocket client: %+v", err)
 	}

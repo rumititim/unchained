@@ -47,17 +47,18 @@ type API struct {
 	handler *Handler
 }
 
-func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService *cosmos.BlockService, swaggerPath string, prometheus *metrics.Prometheus) *API {
+func New(httpClient *binance.HTTPClient, wsClient *binance.WSClient, blockService *cosmos.BlockService, swaggerPath string, prometheus *metrics.Prometheus) *API {
 	r := mux.NewRouter()
 
 	handler := &Handler{
 		Handler: &cosmos.Handler{
 			HTTPClient:   httpClient.HTTPClient,
-			WSClient:     wsClient,
+			WSClient:     nil,
 			BlockService: blockService,
 			Denom:        "bnb",
 		},
 		HTTPClient: httpClient,
+		WSClient:   wsClient,
 	}
 
 	manager := websocket.NewManager(prometheus)
@@ -80,9 +81,9 @@ func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService
 	var _ cosmos.CoinSpecificHandler = handler
 
 	// runtime check to ensure Handler implements CoinSpecificHandler
-	//if err := handler.ValidateCoinSpecific(handler); err != nil {
-	//	logger.Panicf("%+v", err)
-	//}
+	if err := handler.ValidateCoinSpecific(handler); err != nil {
+		logger.Panicf("%+v", err)
+	}
 
 	// pprof server
 	go func() {
@@ -117,6 +118,7 @@ func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService
 
 	v1Gas := v1.PathPrefix("/gas").Subrouter()
 	v1Gas.HandleFunc("/estimate", a.EstimateGas).Methods("POST")
+	v1Gas.HandleFunc("/fees", a.GetFees).Methods("GET")
 
 	// docs redirect paths
 	r.HandleFunc("/docs", api.DocsRedirect).Methods("GET")
@@ -124,4 +126,22 @@ func New(httpClient *binance.HTTPClient, wsClient *cosmos.WSClient, blockService
 	http.Handle("/", r)
 
 	return a
+}
+
+// swagger:route Get /api/v1/gas/fees v1 GetFees
+//
+// Get the current fees by message type.
+//
+// responses:
+//
+//	200: Fees
+//	500: InternalServerError
+func (a *API) GetFees(w http.ResponseWriter, r *http.Request) {
+	fees, err := a.handler.GetFees()
+	if err != nil {
+		api.HandleError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	api.HandleResponse(w, http.StatusOK, fees)
 }

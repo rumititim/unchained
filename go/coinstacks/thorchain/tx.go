@@ -10,7 +10,7 @@ import (
 )
 
 // ParseMessages will parse any thorchain or cosmos-sdk message types
-func ParseMessages(msgs []sdk.Msg, events cosmos.EventsByMsgIndex) []cosmos.Message {
+func ParseMessages(msgs interface{}, events cosmos.EventsByMsgIndex) []cosmos.Message {
 	messages := []cosmos.Message{}
 
 	if _, ok := events["0"]["error"]; ok {
@@ -29,8 +29,8 @@ func ParseMessages(msgs []sdk.Msg, events cosmos.EventsByMsgIndex) []cosmos.Mess
 		}
 	}
 
-	unhandledMsgs := []sdk.Msg{}
-	for i, msg := range msgs {
+	var unhandledMsgs []interface{}
+	for i, msg := range msgs.([]sdk.Msg) {
 		switch v := msg.(type) {
 		case *thorchaintypes.MsgSend:
 			message := cosmos.Message{

@@ -214,7 +214,7 @@ func ParseMessages(msgs interface{}, events EventsByMsgIndex) []Message {
 		return messages
 	}
 
-	for i, msg := range msgs.([]interface{}) {
+	for i, msg := range msgs.([]sdk.Msg) {
 		switch v := msg.(type) {
 		case *banktypes.MsgSend:
 			message := Message{

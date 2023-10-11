@@ -15,7 +15,10 @@ export = async (): Promise<Outputs> => {
         return {
           ...service,
           dataDir: '/root',
-          ports: { 'daemon-rpc': { port: 26657 } },
+          ports: {
+            'daemon-api': { port: 1317, pathPrefix: "/lcd", stripPathPrefix: true },
+            'daemon-rpc': { port: 26657, pathPrefix: "/rpc", stripPathPrefix: true },
+          },
           configMapData: { 'tendermint.sh': readFileSync('../../../scripts/tendermint.sh').toString() },
           volumeMounts: [ { name: 'config-map', mountPath: '/tendermint.sh', subPath: 'tendermint.sh' } ],
           startupProbe: { periodSeconds: 30, failureThreshold: 60, timeoutSeconds: 10 },

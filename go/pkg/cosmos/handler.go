@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strconv"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	ws "github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -40,7 +39,7 @@ type CoinSpecificHandler interface {
 
 type Handler struct {
 	// coin specific handler methods
-	ParseMessages func([]sdk.Msg, EventsByMsgIndex) []Message
+	ParseMessages func(interface{}, EventsByMsgIndex) []Message
 	ParseFee      func(tx signing.Tx, txid string, denom string) Value
 
 	// common cosmossdk values

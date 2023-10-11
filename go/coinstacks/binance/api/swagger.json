@@ -170,6 +170,29 @@
         }
       }
     },
+    "/api/v1/gas/fees": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Get the current fees by message type.",
+        "operationId": "GetFees",
+        "responses": {
+          "200": {
+            "description": "Fees",
+            "schema": {
+              "$ref": "#/definitions/Fees"
+            }
+          },
+          "500": {
+            "description": "InternalServerError",
+            "schema": {
+              "$ref": "#/definitions/InternalServerError"
+            }
+          }
+        }
+      }
+    },
     "/api/v1/info": {
       "get": {
         "tags": [
@@ -547,6 +570,15 @@
         "$ref": "#/definitions/AttributesByEvent"
       },
       "x-go-package": "github.com/shapeshift/unchained/pkg/cosmos"
+    },
+    "Fees": {
+      "description": "Contains info about fees by message type",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "x-go-package": "github.com/shapeshift/unchained/coinstacks/binance"
     },
     "GasAmount": {
       "type": "string",

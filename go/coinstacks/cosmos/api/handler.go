@@ -3,7 +3,6 @@ package api
 import (
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/pkg/errors"
 	"github.com/shapeshift/unchained/pkg/api"
@@ -138,7 +137,7 @@ func (h *Handler) GetValidator(address string) (*cosmos.Validator, error) {
 	return h.HTTPClient.GetValidator(address, aprData.bRate)
 }
 
-func (h *Handler) ParseMessages(msgs []sdk.Msg, events cosmos.EventsByMsgIndex) []cosmos.Message {
+func (h *Handler) ParseMessages(msgs interface{}, events cosmos.EventsByMsgIndex) []cosmos.Message {
 	return cosmos.ParseMessages(msgs, events)
 }
 

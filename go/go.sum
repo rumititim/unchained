@@ -2122,6 +2122,8 @@ github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAm
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/sergi/go-diff v1.2.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/serialx/hashring v0.0.0-20190422032157-8b2912629002/go.mod h1:/yeG0My1xr/u+HZrFQ1tOQQQQrOawfyMUH13ai5brBc=
+github.com/shapeshift/bnb-chain-go-sdk v1.2.11 h1:gzIfhQBrXlKF1yw1UB/sdgf+woJMGYduxtk7IXOJuSA=
+github.com/shapeshift/bnb-chain-go-sdk v1.2.11/go.mod h1:+9O9/6Bu6F4NsOej3ENi53Mc53Nq0KlFFVk+LnjNPPY=
 github.com/shapeshift/thornode v1.120.2 h1:XvKGgF8v+x27++0/UUgbIh5CM84o9c2F4LZsFIMKVBU=
 github.com/shapeshift/thornode v1.120.2/go.mod h1:mdIXExgsUCbyvgy3qQL7wL+w3JBMcqZjU0vxYPzsfTQ=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=

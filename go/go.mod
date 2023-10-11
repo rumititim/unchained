@@ -12,6 +12,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/rs/cors v1.10.0
+	github.com/shapeshift/bnb-chain-go-sdk v1.2.11
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.16.0
 	github.com/tendermint/go-amino v0.16.0
@@ -160,7 +161,9 @@ replace (
 	github.com/cosmos/cosmos-sdk => github.com/cosmos/cosmos-sdk v0.45.16-ics-lsm
 	github.com/cosmos/iavl => github.com/cosmos/iavl v0.19.5
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/tendermint/tendermint => github.com/cometbft/cometbft v0.34.27
+	//github.com/tendermint/tendermint => github.com/cometbft/cometbft v0.34.27
+	github.com/tendermint/tendermint => ./cometbft@v0.34.27
 	github.com/tidwall/btree => github.com/tidwall/btree v1.5.0
 	gitlab.com/thorchain/thornode => github.com/shapeshift/thornode v1.120.2
+	github.com/shapeshift/bnb-chain-go-sdk => ./bnb-chain-go-sdk@v1.2.11
 )

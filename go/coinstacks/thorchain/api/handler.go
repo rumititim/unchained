@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"strconv"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/pkg/errors"
 	"github.com/shapeshift/unchained/coinstacks/thorchain"
@@ -146,7 +145,7 @@ func (h *Handler) GetTxHistory(pubkey string, cursor string, pageSize int) (api.
 	return txHistory, nil
 }
 
-func (h *Handler) ParseMessages(msgs []sdk.Msg, events cosmos.EventsByMsgIndex) []cosmos.Message {
+func (h *Handler) ParseMessages(msgs interface{}, events cosmos.EventsByMsgIndex) []cosmos.Message {
 	return thorchain.ParseMessages(msgs, events)
 }
 

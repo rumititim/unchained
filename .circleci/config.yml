@@ -712,6 +712,16 @@ aliases:
     pulumi-stack: public-us-east-2
     pulumi-dir: coinstacks/binance/pulumi
     rpc-url: http://binance-svc.unchained.svc.cluster.local:26657
+    api-autoscaling: true
+    api-replicas: 2
+    api-max-replicas: 6
+    api-cpu-limit: 500m
+    api-cpu-request: 250m
+    api-cpu-threshold: 75
+    api-memory-limit: 500Mi
+    api-memory-request: 250Mi
+    stateful-service-replicas: 2
+    service-name-1: daemon
     service-image-1: shapeshiftdao/bnb-beacon-chain:v0.10.16
     service-cpu-limit-1: "4"
     service-cpu-request-1: "2"
@@ -723,6 +733,10 @@ aliases:
     environment: dev
     pulumi-stack: public-dev-us-east-2
     rpc-url: http://binance-svc.unchained-dev.svc.cluster.local:26657
+    api-replicas: 1
+    api-max-replicas: 2
+    api-memory-limit: 250Mi
+    stateful-service-replicas: 1
 
 commands:
   precheck:

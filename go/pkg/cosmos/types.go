@@ -12,5 +12,6 @@ type Pagination struct {
 }
 
 type Msg interface {
-	ValidateBasic() error
+	Route() string
+	Type() string
 }
