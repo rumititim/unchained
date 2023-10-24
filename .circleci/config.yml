@@ -851,11 +851,10 @@ jobs:
             pulumi config set --path unchained:common.eks.nodeGroups[0].desired 8
             pulumi config set --path unchained:common.eks.nodeGroups[0].minSize 8
             pulumi config set --path unchained:common.eks.nodeGroups[0].maxSize 8
-            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[0] r6in.4xlarge
-            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[1] r6idn.4xlarge
-            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[2] r6a.4xlarge
-            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[3] r6i.4xlarge
-            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[4] r6id.4xlarge
+            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[0] t3.medium
+            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[1] t3.large
+            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[2] t2.medium
+            pulumi config set --path unchained:common.eks.nodeGroups[0].instanceTypes[3] t2.large
             pulumi config set --path unchained:common.eks.traefik.autoscaling.enabled true
             pulumi config set --path unchained:common.eks.traefik.autoscaling.memoryThreshold 50
             pulumi config set --path unchained:common.eks.traefik.autoscaling.cpuThreshold 80
